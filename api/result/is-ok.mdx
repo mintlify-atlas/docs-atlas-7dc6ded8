@@ -1,0 +1,152 @@
+---
+title: Result.isOk
+description: Check if a Result is an Ok variant
+---
+
+## Overview
+
+Type guard method that checks if a `Result` is an `Ok` variant. Returns `true` if the Result contains a success value.
+
+## Signature
+
+```typescript
+class Result<T, E> {
+  isOk(): this is Ok<T, E>
+}
+```
+
+**Returns:** `boolean` - `true` if the Result is Ok, `false` if it's Err
+
+## Usage
+
+### Basic type checking
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const success = ok(42)
+const failure = err('error')
+
+if (success.isOk()) {
+  console.log('Success!')
+  // TypeScript knows this is Ok<number, string>
+  const value: number = success.value
+}
+
+if (failure.isOk()) {
+  // This block won't execute
+  console.log('This won\'t print')
+}
+```
+
+### Type narrowing
+
+```typescript
+function processResult(result: Result<User, Error>) {
+  if (result.isOk()) {
+    // TypeScript narrows the type to Ok<User, Error>
+    const user = result.value  // Type: User
+    console.log(user.name)
+  } else {
+    // TypeScript narrows the type to Err<User, Error>
+    const error = result.error  // Type: Error
+    console.error(error.message)
+  }
+}
+```
+
+### Early returns
+
+```typescript
+function getUserName(result: Result<User, string>): string {
+  if (!result.isOk()) {
+    return 'Anonymous'
+  }
+  
+  // TypeScript knows result is Ok here
+  return result.value.name
+}
+```
+
+### Filtering arrays
+
+```typescript
+const results: Result<number, string>[] = [
+  ok(1),
+  err('error'),
+  ok(2),
+  ok(3)
+]
+
+const successes = results.filter(r => r.isOk())
+// successes has Ok results only
+
+const values = successes.map(r => r.value)
+// values is [1, 2, 3]
+```
+
+## Type guard behavior
+
+<Note>
+  `isOk()` is a TypeScript type guard. After checking `isOk()`, TypeScript automatically narrows the type to `Ok<T, E>`, giving you access to `.value`.
+</Note>
+
+```typescript
+const result: Result<string, number> = ok('hello')
+
+// Before isOk() check
+result.value  // ❌ TypeScript error: Property 'value' doesn't exist on Result
+
+if (result.isOk()) {
+  // After isOk() check
+  result.value  // ✅ TypeScript knows this is safe
+}
+```
+
+## Comparison with other patterns
+
+### isOk vs match
+
+```typescript
+// Using isOk - imperative style
+if (result.isOk()) {
+  console.log(result.value)
+} else {
+  console.error(result.error)
+}
+
+// Using match - functional style
+result.match(
+  value => console.log(value),
+  error => console.error(error)
+)
+```
+
+### isOk vs unwrapOr
+
+```typescript
+// Using isOk with conditional logic
+const value = result.isOk() ? result.value : defaultValue
+
+// Using unwrapOr - more concise
+const value = result.unwrapOr(defaultValue)
+```
+
+## When to use
+
+- ✅ When you need different logic for success vs failure
+- ✅ When integrating with existing imperative code
+- ✅ When you need to access both `.value` and `.error` in different branches
+- ❌ When you just need the value → use `unwrapOr()` instead
+- ❌ When transforming results → use `map()` or `andThen()` instead
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="isErr" icon="xmark" href="./is-err">
+    Check if Result is an Err variant
+  </Card>
+  <Card title="match" icon="code-branch" href="./match">
+    Pattern match on both variants
+  </Card>
+</CardGroup>

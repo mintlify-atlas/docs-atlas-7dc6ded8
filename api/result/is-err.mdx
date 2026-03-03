@@ -1,0 +1,208 @@
+---
+title: Result.isErr
+description: Check if a Result is an Err variant
+---
+
+## Overview
+
+Type guard method that checks if a `Result` is an `Err` variant. Returns `true` if the Result contains an error value.
+
+## Signature
+
+```typescript
+class Result<T, E> {
+  isErr(): this is Err<T, E>
+}
+```
+
+**Returns:** `boolean` - `true` if the Result is Err, `false` if it's Ok
+
+## Usage
+
+### Basic error checking
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const success = ok(42)
+const failure = err('Something went wrong')
+
+if (failure.isErr()) {
+  console.error('Error:', failure.error)
+  // TypeScript knows this is Err<number, string>
+  const errorMsg: string = failure.error
+}
+
+if (success.isErr()) {
+  // This block won't execute
+  console.error('This won\'t print')
+}
+```
+
+### Type narrowing
+
+```typescript
+function handleResult(result: Result<Data, ApiError>) {
+  if (result.isErr()) {
+    // TypeScript narrows the type to Err<Data, ApiError>
+    const error = result.error  // Type: ApiError
+    logError(error)
+    return null
+  }
+  
+  // TypeScript knows result is Ok here
+  return result.value  // Type: Data
+}
+```
+
+### Early error returns
+
+```typescript
+function processData(result: Result<Data, string>): Data {
+  if (result.isErr()) {
+    throw new Error(result.error)
+  }
+  
+  // TypeScript knows result is Ok here
+  return result.value
+}
+```
+
+### Error recovery
+
+```typescript
+const result = fetchData()
+
+if (result.isErr()) {
+  console.warn('Primary fetch failed:', result.error)
+  // Try fallback
+  const fallback = fetchFromCache()
+  if (fallback.isErr()) {
+    console.error('Fallback also failed:', fallback.error)
+    return defaultData
+  }
+  return fallback.value
+}
+
+return result.value
+```
+
+### Collecting errors
+
+```typescript
+const results: Result<number, string>[] = [
+  ok(1),
+  err('error 1'),
+  ok(2),
+  err('error 2')
+]
+
+const errors = results
+  .filter(r => r.isErr())
+  .map(r => r.error)
+
+// errors is ['error 1', 'error 2']
+```
+
+## Type guard behavior
+
+<Note>
+  `isErr()` is a TypeScript type guard. After checking `isErr()`, TypeScript automatically narrows the type to `Err<T, E>`, giving you access to `.error`.
+</Note>
+
+```typescript
+const result: Result<string, number> = err(404)
+
+// Before isErr() check
+result.error  // ❌ TypeScript error: Property 'error' doesn't exist on Result
+
+if (result.isErr()) {
+  // After isErr() check
+  result.error  // ✅ TypeScript knows this is safe - returns 404
+}
+```
+
+## Common patterns
+
+### Guard clause pattern
+
+```typescript
+function doSomething(result: Result<User, Error>): void {
+  // Guard clause - handle error early
+  if (result.isErr()) {
+    notifyUser(result.error)
+    return
+  }
+  
+  // Continue with success path
+  const user = result.value
+  processUser(user)
+}
+```
+
+### Negation pattern
+
+```typescript
+// Using isErr with negation
+if (!result.isErr()) {
+  // result is Ok
+  console.log(result.value)
+}
+
+// More idiomatic: use isOk instead
+if (result.isOk()) {
+  console.log(result.value)
+}
+```
+
+## Comparison with other patterns
+
+### isErr vs match
+
+```typescript
+// Using isErr - imperative style
+if (result.isErr()) {
+  return handleError(result.error)
+}
+return processValue(result.value)
+
+// Using match - functional style  
+return result.match(
+  value => processValue(value),
+  error => handleError(error)
+)
+```
+
+### isErr vs mapErr
+
+```typescript
+// Using isErr to transform errors
+if (result.isErr()) {
+  const newError = transformError(result.error)
+  return err(newError)
+}
+return result
+
+// Using mapErr - more concise
+return result.mapErr(transformError)
+```
+
+## When to use
+
+- ✅ When you need to handle errors immediately
+- ✅ When using guard clauses for early returns
+- ✅ When integrating with existing imperative code
+- ✅ When collecting or filtering errors from arrays
+- ❌ When transforming errors → use `mapErr()` instead
+- ❌ When recovering from errors → use `orElse()` instead
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="isOk" icon="check" href="./is-ok">
+    Check if Result is an Ok variant
+  </Card>
+  <Card title="mapErr" icon="triangle-exclamation" href="./map-err">
+    Transform error values
+  </Card>
+</CardGroup>

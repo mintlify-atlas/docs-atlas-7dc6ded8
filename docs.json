@@ -59,6 +59,8 @@
             "pages": [
               "api/result/ok",
               "api/result/err",
+              "api/result/is-ok",
+              "api/result/is-err",
               "api/result/map",
               "api/result/map-err",
               "api/result/and-then",
