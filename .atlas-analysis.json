@@ -1,0 +1,168 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "NeverThrow",
+  "projectDescription": "Type-safe error handling for JavaScript & TypeScript using Result and ResultAsync types",
+  "theme": "palm",
+  "primaryColor": "#8B5CF6",
+  "lightColor": "#A78BFA",
+  "darkColor": "#7C3AED",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/result-type",
+              "concepts/result-async",
+              "concepts/error-handling"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/basic-usage",
+              "guides/chaining-operations",
+              "guides/async-operations",
+              "guides/combining-results",
+              "guides/error-recovery"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Result (Sync)",
+            "pages": [
+              "api/result/ok",
+              "api/result/err",
+              "api/result/map",
+              "api/result/map-err",
+              "api/result/and-then",
+              "api/result/or-else",
+              "api/result/match",
+              "api/result/unwrap-or",
+              "api/result/async-map",
+              "api/result/tee-methods",
+              "api/result/through-methods",
+              "api/result/combine",
+              "api/result/from-throwable"
+            ]
+          },
+          {
+            "group": "ResultAsync",
+            "pages": [
+              "api/result-async/ok-async",
+              "api/result-async/err-async",
+              "api/result-async/map",
+              "api/result-async/map-err",
+              "api/result-async/and-then",
+              "api/result-async/or-else",
+              "api/result-async/match",
+              "api/result-async/unwrap-or",
+              "api/result-async/tee-methods",
+              "api/result-async/through-methods",
+              "api/result-async/combine",
+              "api/result-async/from-promise",
+              "api/result-async/from-throwable"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/utilities/safe-try",
+              "api/utilities/from-throwable",
+              "api/utilities/from-async-throwable",
+              "api/utilities/from-promise",
+              "api/utilities/from-safe-promise"
+            ]
+          },
+          {
+            "group": "Testing",
+            "pages": [
+              "api/testing/unsafe-unwrap"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Additional Resources",
+            "pages": [
+              "resources/migration-guide",
+              "resources/typescript-tips",
+              "resources/eslint-plugin",
+              "resources/faq",
+              "resources/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Type-safe error handling with Result<T, E> and ResultAsync<T, E>",
+    "Functional programming patterns with map, andThen, orElse",
+    "Safe wrapping of throwing functions with fromThrowable",
+    "Combining multiple Results with short-circuit or all-errors modes",
+    "Generator-based syntax with safeTry for ergonomic error propagation",
+    "Full async/await support with ResultAsync"
+  ],
+  "publicApiSurface": [
+    "ok<T, E>(value: T): Ok<T, E>",
+    "err<T, E>(error: E): Err<T, E>",
+    "okAsync<T, E>(value: T): ResultAsync<T, E>",
+    "errAsync<T, E>(error: E): ResultAsync<T, E>",
+    "Result.fromThrowable<Fn, E>(fn: Fn, errorFn?: (e: unknown) => E)",
+    "Result.combine<T[]>(results: Result<T, E>[]): Result<T[], E>",
+    "Result.combineWithAllErrors<T[]>(results: Result<T, E>[]): Result<T[], E[]>",
+    "ResultAsync.fromPromise<T, E>(promise: Promise<T>, errorFn: (e: unknown) => E): ResultAsync<T, E>",
+    "ResultAsync.fromSafePromise<T, E>(promise: Promise<T>): ResultAsync<T, E>",
+    "ResultAsync.fromThrowable<A, R, E>(fn: (...args: A) => Promise<R>, errorFn?: (err: unknown) => E)",
+    "ResultAsync.combine<T[]>(asyncResults: ResultAsync<T, E>[]): ResultAsync<T[], E>",
+    "ResultAsync.combineWithAllErrors<T[]>(asyncResults: ResultAsync<T, E>[]): ResultAsync<T[], E[]>",
+    "safeTry<T, E>(body: () => Generator<Err<never, E>, Result<T, E>>): Result<T, E>",
+    "fromThrowable<Fn, E>(fn: Fn, errorFn?: (e: unknown) => E)",
+    "fromAsyncThrowable<A, R, E>(fn: (...args: A) => Promise<R>, errorFn?: (err: unknown) => E)",
+    "fromPromise<T, E>(promise: Promise<T>, errorFn: (e: unknown) => E): ResultAsync<T, E>",
+    "fromSafePromise<T, E>(promise: Promise<T>): ResultAsync<T, E>",
+    "Result.isOk(): boolean",
+    "Result.isErr(): boolean",
+    "Result.map<U>(fn: (value: T) => U): Result<U, E>",
+    "Result.mapErr<F>(fn: (error: E) => F): Result<T, F>",
+    "Result.andThen<U, F>(fn: (value: T) => Result<U, F>): Result<U, E | F>",
+    "Result.asyncAndThen<U, F>(fn: (value: T) => ResultAsync<U, F>): ResultAsync<U, E | F>",
+    "Result.orElse<U, A>(fn: (error: E) => Result<U, A>): Result<U | T, A>",
+    "Result.match<A, B>(okFn: (value: T) => A, errFn: (error: E) => B): A | B",
+    "Result.unwrapOr<T>(defaultValue: T): T",
+    "Result.asyncMap<U>(fn: (value: T) => Promise<U>): ResultAsync<U, E>",
+    "Result.andTee(fn: (value: T) => unknown): Result<T, E>",
+    "Result.orTee(fn: (error: E) => unknown): Result<T, E>",
+    "Result.andThrough<F>(fn: (value: T) => Result<unknown, F>): Result<T, E | F>",
+    "Result.asyncAndThrough<F>(fn: (value: T) => ResultAsync<unknown, F>): ResultAsync<T, E | F>",
+    "ResultAsync.map<A>(fn: (t: T) => A | Promise<A>): ResultAsync<A, E>",
+    "ResultAsync.mapErr<F>(fn: (error: E) => F | Promise<F>): ResultAsync<T, F>",
+    "ResultAsync.andThen<U, F>(fn: (value: T) => Result<U, F> | ResultAsync<U, F>): ResultAsync<U, E | F>",
+    "ResultAsync.orElse<U, A>(fn: (error: E) => Result<U, A> | ResultAsync<U, A>): ResultAsync<U | T, A>",
+    "ResultAsync.match<A, B>(okFn: (value: T) => A, errFn: (error: E) => B): Promise<A | B>",
+    "ResultAsync.unwrapOr<T>(defaultValue: T): Promise<T>",
+    "ResultAsync.andTee(fn: (value: T) => unknown): ResultAsync<T, E>",
+    "ResultAsync.orTee(fn: (error: E) => unknown): ResultAsync<T, E>",
+    "ResultAsync.andThrough<F>(fn: (value: T) => Result<unknown, F> | ResultAsync<unknown, F>): ResultAsync<T, E | F>",
+    "Result._unsafeUnwrap(): T",
+    "Result._unsafeUnwrapErr(): E"
+  ]
+}
