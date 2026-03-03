@@ -1,0 +1,334 @@
+---
+title: "fromPromise()"
+description: "Convert a Promise into a ResultAsync with error handling"
+---
+
+## Overview
+
+The `fromPromise` function transforms a `Promise<T>` that might reject into a `ResultAsync<T, E>`. It allows you to handle Promise rejections in a type-safe way by mapping the rejection to a known error type.
+
+`fromPromise` is a top-level export that references `ResultAsync.fromPromise`.
+
+## Type Signature
+
+```typescript
+function fromPromise<T, E>(
+  promise: PromiseLike<T>,
+  errorHandler: (unknownError: unknown) => E
+): ResultAsync<T, E>
+```
+
+## Parameters
+
+- `promise`: A `PromiseLike<T>` that might reject
+- `errorHandler`: **Required** function that maps the rejection value to a known error type `E`
+  - Receives `unknown` as the error (the rejection value)
+  - Must return a value of type `E`
+
+## Return Value
+
+Returns a `ResultAsync<T, E>` that:
+- Resolves to `Ok<T>` if the promise resolves successfully
+- Resolves to `Err<E>` if the promise rejects
+
+## Basic Usage
+
+### Converting a Simple Promise
+
+```typescript
+import { fromPromise } from 'neverthrow'
+
+type FetchError = { type: 'NetworkError'; message: string }
+
+const userPromise = fetch('https://api.example.com/user/1')
+  .then(res => res.json())
+
+const userResult = fromPromise(
+  userPromise,
+  (error): FetchError => ({
+    type: 'NetworkError',
+    message: error instanceof Error ? error.message : 'Unknown error'
+  })
+)
+
+// userResult type: ResultAsync<User, FetchError>
+
+const user = await userResult
+
+if (user.isOk()) {
+  console.log('User:', user.value)
+} else {
+  console.log('Error:', user.error.message)
+}
+```
+
+### Database Query
+
+```typescript
+import { fromPromise } from 'neverthrow'
+import { db } from './database'
+
+type DbError = 'ConnectionFailed' | 'QueryFailed'
+
+function getUser(id: string) {
+  return fromPromise(
+    db.query('SELECT * FROM users WHERE id = ?', [id]),
+    (): DbError => 'QueryFailed'
+  )
+}
+
+const result = await getUser('123')
+```
+
+## Real-World Examples
+
+### HTTP Request with Detailed Error Handling
+
+```typescript
+import { fromPromise, ResultAsync } from 'neverthrow'
+
+type HttpError = 
+  | { type: 'NetworkError'; message: string }
+  | { type: 'Timeout' }
+  | { type: 'InvalidResponse'; status: number }
+
+async function fetchUser(id: string): ResultAsync<User, HttpError> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  
+  return fromPromise(
+    fetch(`https://api.example.com/users/${id}`, {
+      signal: controller.signal
+    }),
+    (error): HttpError => {
+      clearTimeout(timeout)
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { type: 'Timeout' }
+      }
+      return {
+        type: 'NetworkError',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  ).andThen(response => {
+    clearTimeout(timeout)
+    if (!response.ok) {
+      return err({ type: 'InvalidResponse', status: response.status })
+    }
+    return fromPromise(
+      response.json(),
+      (): HttpError => ({ type: 'NetworkError', message: 'Invalid JSON' })
+    )
+  })
+}
+```
+
+### File System Operations
+
+```typescript
+import { fromPromise } from 'neverthrow'
+import { promises as fs } from 'fs'
+
+type FileError = 
+  | { type: 'NotFound'; path: string }
+  | { type: 'PermissionDenied'; path: string }
+  | { type: 'Unknown'; message: string }
+
+function readFile(path: string) {
+  return fromPromise(
+    fs.readFile(path, 'utf-8'),
+    (error): FileError => {
+      if (error instanceof Error) {
+        if (error.message.includes('ENOENT')) {
+          return { type: 'NotFound', path }
+        }
+        if (error.message.includes('EACCES')) {
+          return { type: 'PermissionDenied', path }
+        }
+        return { type: 'Unknown', message: error.message }
+      }
+      return { type: 'Unknown', message: 'Unknown error' }
+    }
+  )
+}
+
+const result = await readFile('config.json')
+
+result.match(
+  (content) => console.log('File content:', content),
+  (error) => {
+    switch (error.type) {
+      case 'NotFound':
+        console.log('File not found:', error.path)
+        break
+      case 'PermissionDenied':
+        console.log('Permission denied:', error.path)
+        break
+      case 'Unknown':
+        console.log('Error:', error.message)
+        break
+    }
+  }
+)
+```
+
+### Multiple Async Operations
+
+```typescript
+import { fromPromise, safeTry } from 'neverthrow'
+
+type AppError = 'DbError' | 'ApiError' | 'ValidationError'
+
+function processOrder(orderId: string) {
+  return safeTry(async function*() {
+    // Fetch order from database
+    const order = yield* fromPromise(
+      db.getOrder(orderId),
+      (): AppError => 'DbError'
+    )
+    
+    // Validate order
+    const validated = yield* validateOrder(order)
+      .mapErr((): AppError => 'ValidationError')
+    
+    // Call payment API
+    const payment = yield* fromPromise(
+      paymentApi.charge(validated),
+      (): AppError => 'ApiError'
+    )
+    
+    // Update order in database
+    yield* fromPromise(
+      db.updateOrder(orderId, { status: 'paid', paymentId: payment.id }),
+      (): AppError => 'DbError'
+    )
+    
+    return ok(payment)
+  })
+}
+```
+
+### Promise.all with Results
+
+```typescript
+import { fromPromise, ResultAsync } from 'neverthrow'
+
+type FetchError = { message: string }
+
+function fetchMultipleUsers(ids: string[]) {
+  const promises = ids.map(id =>
+    fromPromise(
+      fetch(`https://api.example.com/users/${id}`).then(r => r.json()),
+      (error): FetchError => ({
+        message: error instanceof Error ? error.message : 'Fetch failed'
+      })
+    )
+  )
+  
+  return ResultAsync.combine(promises)
+}
+
+const result = await fetchMultipleUsers(['1', '2', '3'])
+
+if (result.isOk()) {
+  console.log('All users:', result.value) // User[]
+} else {
+  console.log('At least one fetch failed:', result.error)
+}
+```
+
+### Streaming Response
+
+```typescript
+import { fromPromise } from 'neverthrow'
+
+type StreamError = 'StreamFailed' | 'ReadFailed'
+
+function downloadFile(url: string) {
+  return fromPromise(
+    fetch(url),
+    (): StreamError => 'StreamFailed'
+  ).andThen(response => {
+    if (!response.ok) {
+      return err('StreamFailed' as const)
+    }
+    return fromPromise(
+      response.arrayBuffer(),
+      (): StreamError => 'ReadFailed'
+    )
+  })
+}
+```
+
+## Chaining with Other Methods
+
+```typescript
+import { fromPromise } from 'neverthrow'
+
+const result = fromPromise(
+  fetch('https://api.example.com/data'),
+  () => 'FetchError' as const
+)
+  .andThen(response => {
+    if (!response.ok) {
+      return err('InvalidResponse' as const)
+    }
+    return fromPromise(
+      response.json(),
+      () => 'ParseError' as const
+    )
+  })
+  .map(data => data.items)
+  .map(items => items.filter(item => item.active))
+
+// result type: ResultAsync<Item[], 'FetchError' | 'InvalidResponse' | 'ParseError'>
+```
+
+## Important Considerations
+
+<Warning>
+**fromPromise vs fromAsyncThrowable**
+
+Use `fromPromise` when you already have a Promise instance:
+```typescript
+const promise = someAsyncFunction()
+const result = fromPromise(promise, handleError)
+```
+
+Use `fromAsyncThrowable` when wrapping a function that might throw synchronously:
+```typescript
+const safeFunction = fromAsyncThrowable(someAsyncFunction, handleError)
+const result = safeFunction() // Safe from sync throws
+```
+</Warning>
+
+### Error Handler is Required
+
+Unlike `fromThrowable`, the error handler parameter is **not optional** for `fromPromise`. This is because:
+- Promise rejections can be of any type
+- TypeScript cannot infer a safe default error type
+- You must explicitly handle the unknown rejection value
+
+```typescript
+// This will cause a TypeScript error
+const result = fromPromise(somePromise) // Error: Expected 2 arguments
+
+// You must provide an error handler
+const result = fromPromise(somePromise, () => 'Error')
+```
+
+## Key Points
+
+- Converts `Promise<T>` to `ResultAsync<T, E>`
+- Error handler parameter is **required**
+- Maps promise rejections to a known error type
+- Use for existing Promise instances
+- For function wrapping, prefer `fromAsyncThrowable`
+- Works seamlessly with `safeTry` and other Result methods
+
+## Related
+
+- [fromAsyncThrowable()](/api/utilities/from-async-throwable) - For wrapping async functions
+- [fromSafePromise()](/api/utilities/from-safe-promise) - For Promises that never reject
+- [ResultAsync](/api/result-async/overview) - The ResultAsync class
+- [safeTry()](/api/utilities/safe-try) - For combining multiple async operations

@@ -1,0 +1,128 @@
+---
+title: Result.map()
+description: Transform the Ok value of a Result while leaving Err untouched
+---
+
+## Overview
+
+Maps a `Result<T, E>` to `Result<U, E>` by applying a function to a contained `Ok` value, leaving an `Err` value untouched. This is useful for transforming success values through a computation pipeline.
+
+## Signature
+
+```typescript
+class Result<T, E> {
+  map<A>(f: (t: T) => A): Result<A, E>
+}
+```
+
+## Parameters
+
+<ParamField path="f" type="(t: T) => A" required>
+  A function that transforms the Ok value from type `T` to type `A`. This function is only called if the Result is Ok.
+</ParamField>
+
+## Returns
+
+Returns a new `Result<A, E>` where:
+- If the original Result is `Ok(value)`, returns `Ok(f(value))`
+- If the original Result is `Err(error)`, returns `Err(error)` unchanged
+
+## Examples
+
+### Basic Transformation
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const okVal = ok(12)
+const mapped = okVal.map((number) => number.toString())
+
+mapped.isOk() // true
+mapped._unsafeUnwrap() // '12'
+```
+
+### Skips Errors
+
+```typescript
+const errVal = err('I am your father')
+const mapper = (value: number) => value * 2
+
+const notMapped = errVal.map(mapper)
+
+notMapped.isErr() // true
+notMapped._unsafeUnwrapErr() // 'I am your father'
+// mapper was never called
+```
+
+### Chaining Multiple Maps
+
+```typescript
+const result = ok(10)
+  .map((n) => n * 2)      // Ok(20)
+  .map((n) => n + 5)      // Ok(25)
+  .map((n) => n.toString()) // Ok('25')
+
+result._unsafeUnwrap() // '25'
+```
+
+### Real-World Example
+
+```typescript
+import { getLines } from 'imaginary-parser'
+// getLines(str: string): Result<Array<string>, Error>
+
+const linesResult = getLines('1\n2\n3\n4\n')
+
+// Transform array of strings to array of numbers
+const numbersResult = linesResult.map(
+  (lines: Array<string>) => lines.map(parseInt)
+)
+
+numbersResult.isOk() // true
+numbersResult._unsafeUnwrap() // [1, 2, 3, 4]
+```
+
+### Type Transformations
+
+```typescript
+type User = { name: string; age: number }
+type UserDTO = { name: string }
+
+const user: Result<User, string> = ok({ name: 'Alice', age: 30 })
+
+const dto: Result<UserDTO, string> = user.map((u) => ({
+  name: u.name
+}))
+```
+
+## Implementation Details
+
+From the source code (result.ts:323-325):
+
+```typescript
+map<A>(f: (t: T) => A): Result<A, E> {
+  return ok(f(this.value))
+}
+```
+
+For `Err` (result.ts:431-433):
+
+```typescript
+map<A>(_f: (t: T) => A): Result<A, E> {
+  return err(this.error)
+}
+```
+
+## Notes
+
+- The mapping function is only executed for `Ok` values
+- The error type `E` remains unchanged
+- This method does not catch exceptions thrown by the mapping function
+- For async transformations, use [asyncMap()](/api/result/async-map)
+- For transformations that return a Result, use [andThen()](/api/result/and-then)
+
+## Related
+
+- [Result.mapErr()](/api/result/map-err) - Transform error values
+- [Result.andThen()](/api/result/and-then) - Chain computations that return Results
+- [Result.asyncMap()](/api/result/async-map) - Map with async functions

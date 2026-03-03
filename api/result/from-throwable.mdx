@@ -1,0 +1,353 @@
+---
+title: Result.fromThrowable()
+description: Convert functions that throw exceptions into functions that return Results
+---
+
+## Overview
+
+Wraps a function with a try-catch block, creating a new function with the same arguments but returning `Ok` if successful and `Err` if the function throws. This is essential for safely interfacing with third-party libraries and legacy code that use exceptions.
+
+## Signature
+
+```typescript
+Result.fromThrowable<Fn extends (...args: readonly any[]) => any, E>(
+  fn: Fn,
+  errorFn?: (e: unknown) => E
+): (...args: Parameters<Fn>) => Result<ReturnType<Fn>, E>
+```
+
+## Parameters
+
+<ParamField path="fn" type="Fn" required>
+  The function to wrap with error handling. Can take any arguments and return any type.
+</ParamField>
+
+<ParamField path="errorFn" type="(e: unknown) => E">
+  Optional function to transform the thrown error into a known type. If not provided, the error type will be `unknown`.
+</ParamField>
+
+## Returns
+
+Returns a new function with the same signature as `fn`, but returns:
+- `Ok(result)` if the function executes successfully
+- `Err(error)` if the function throws (error transformed by `errorFn` if provided)
+
+## Examples
+
+### Basic Usage with JSON.parse
+
+```typescript
+import { Result } from 'neverthrow'
+
+const safeJsonParse = Result.fromThrowable(JSON.parse)
+
+const result = safeJsonParse('{"valid": "json"}')
+// result is Result<any, unknown>
+result.isOk() // true
+result._unsafeUnwrap() // { valid: 'json' }
+
+const errorResult = safeJsonParse('{')
+errorResult.isErr() // true
+errorResult._unsafeUnwrapErr() // SyntaxError: Unexpected end of JSON input
+```
+
+### With Error Handler
+
+```typescript
+type ParseError = { message: string }
+
+const toParseError = (e: unknown): ParseError => ({
+  message: e instanceof Error ? e.message : 'Parse Error'
+})
+
+const safeJsonParse = Result.fromThrowable(JSON.parse, toParseError)
+// Result<any, ParseError>
+
+const result = safeJsonParse('{')
+result.isErr() // true
+result._unsafeUnwrapErr() // { message: 'Unexpected end of JSON input' }
+```
+
+### With Arguments
+
+```typescript
+function divide(a: number, b: number): number {
+  if (b === 0) {
+    throw new Error('Division by zero')
+  }
+  return a / b
+}
+
+const safeDivide = Result.fromThrowable(
+  divide,
+  (e) => `Error: ${e instanceof Error ? e.message : 'Unknown error'}`
+)
+
+const result1 = safeDivide(10, 2)
+// Ok(5)
+
+const result2 = safeDivide(10, 0)
+// Err('Error: Division by zero')
+```
+
+### Typed Error Handling
+
+```typescript
+enum ParseErrorType {
+  InvalidJson = 'InvalidJson',
+  EmptyInput = 'EmptyInput',
+  UnknownError = 'UnknownError'
+}
+
+type ParseError = {
+  type: ParseErrorType
+  message: string
+  originalError?: unknown
+}
+
+const handleParseError = (e: unknown): ParseError => {
+  if (e instanceof SyntaxError) {
+    return {
+      type: ParseErrorType.InvalidJson,
+      message: e.message,
+      originalError: e
+    }
+  }
+  return {
+    type: ParseErrorType.UnknownError,
+    message: 'An unknown error occurred',
+    originalError: e
+  }
+}
+
+const safeJsonParse = Result.fromThrowable(JSON.parse, handleParseError)
+// Result<any, ParseError>
+```
+
+### File System Operations
+
+```typescript
+import * as fs from 'fs'
+
+type FileError = { code: string; path: string; message: string }
+
+const handleFileError = (path: string) => (e: unknown): FileError => ({
+  code: e instanceof Error && 'code' in e ? (e as any).code : 'UNKNOWN',
+  path,
+  message: e instanceof Error ? e.message : 'File operation failed'
+})
+
+const safeReadFileSync = Result.fromThrowable(
+  fs.readFileSync,
+  handleFileError
+)
+
+const content = safeReadFileSync('config.json', 'utf-8')
+  .map((text) => JSON.parse(text))
+  .map((config) => config.port)
+  .unwrapOr(3000)
+```
+
+### URL Parsing
+
+```typescript
+type UrlError = { message: string; input: string }
+
+const safeUrlParse = (input: string) => {
+  const parse = Result.fromThrowable(
+    (url: string) => new URL(url),
+    (e): UrlError => ({
+      message: e instanceof Error ? e.message : 'Invalid URL',
+      input
+    })
+  )
+  return parse(input)
+}
+
+const url = safeUrlParse('https://example.com')
+// Ok(URL { ... })
+
+const badUrl = safeUrlParse('not a url')
+// Err({ message: 'Invalid URL', input: 'not a url' })
+```
+
+### Database Operations
+
+```typescript
+import { db } from 'imaginary-database'
+
+type DbError = { operation: string; details: string }
+
+const safeQuery = Result.fromThrowable(
+  (sql: string) => db.query(sql),
+  (e): DbError => ({
+    operation: 'query',
+    details: e instanceof Error ? e.message : 'Database error'
+  })
+)
+
+const users = safeQuery('SELECT * FROM users')
+  .map((rows) => rows.map(transformUser))
+  .mapErr((error) => {
+    logger.error('Database query failed', error)
+    return error
+  })
+```
+
+### Parsing User Input
+
+```typescript
+function parseDate(dateString: string): Date {
+  const date = new Date(dateString)
+  if (isNaN(date.getTime())) {
+    throw new Error('Invalid date')
+  }
+  return date
+}
+
+type DateParseError = { input: string; reason: string }
+
+const safeDateParse = Result.fromThrowable(
+  parseDate,
+  (e): DateParseError => ({
+    input: '',
+    reason: e instanceof Error ? e.message : 'Invalid date'
+  })
+)
+
+const date = safeDateParse('2024-03-15')
+  .map((d) => d.toISOString())
+  .unwrapOr('Invalid date')
+```
+
+### Wrapping Third-Party Libraries
+
+```typescript
+import yaml from 'js-yaml'
+
+type YamlError = {
+  type: 'YamlError'
+  message: string
+  line?: number
+}
+
+const safeYamlParse = Result.fromThrowable(
+  yaml.load,
+  (e): YamlError => ({
+    type: 'YamlError',
+    message: e instanceof Error ? e.message : 'YAML parse error',
+    line: (e as any).mark?.line
+  })
+)
+
+const config = safeYamlParse(yamlString)
+  .andThen(validateConfig)
+  .map(applyDefaults)
+```
+
+### Regex Operations
+
+```typescript
+type RegexError = { pattern: string; message: string }
+
+function createSafeRegex(pattern: string): Result<RegExp, RegexError> {
+  const safeRegexConstructor = Result.fromThrowable(
+    (p: string) => new RegExp(p),
+    (e): RegexError => ({
+      pattern,
+      message: e instanceof Error ? e.message : 'Invalid regex'
+    })
+  )
+  return safeRegexConstructor(pattern)
+}
+
+const regex = createSafeRegex('[a-z+')
+regex.isErr() // true - unterminated character class
+
+const validRegex = createSafeRegex('[a-z]+')
+validRegex.isOk() // true
+```
+
+### Real-World Authentication
+
+```typescript
+import bcrypt from 'bcrypt'
+
+type HashError = { type: 'HashError'; message: string }
+
+const safeHash = Result.fromThrowable(
+  (password: string) => bcrypt.hashSync(password, 10),
+  (e): HashError => ({
+    type: 'HashError',
+    message: e instanceof Error ? e.message : 'Hash failed'
+  })
+)
+
+const safeCompare = Result.fromThrowable(
+  (password: string, hash: string) => bcrypt.compareSync(password, hash),
+  (e): HashError => ({
+    type: 'HashError',
+    message: e instanceof Error ? e.message : 'Compare failed'
+  })
+)
+
+function hashPassword(password: string): Result<string, HashError> {
+  return safeHash(password)
+}
+
+function verifyPassword(
+  password: string,
+  hash: string
+): Result<boolean, HashError> {
+  return safeCompare(password, hash)
+}
+```
+
+## Implementation Details
+
+From the source code (result.ts:23-35):
+
+```typescript
+export function fromThrowable<Fn extends (...args: readonly any[]) => any, E>(
+  fn: Fn,
+  errorFn?: (e: unknown) => E,
+): (...args: Parameters<Fn>) => Result<ReturnType<Fn>, E> {
+  return (...args) => {
+    try {
+      const result = fn(...args)
+      return ok(result)
+    } catch (e) {
+      return err(errorFn ? errorFn(e) : e)
+    }
+  }
+}
+```
+
+Also available as top-level export (result.ts:523):
+
+```typescript
+export const fromThrowable = Result.fromThrowable
+```
+
+## Notes
+
+- The wrapper function has the same signature as the original function
+- Without `errorFn`, the error type is `unknown`
+- The error handler receives `unknown` since any type can be thrown in JavaScript
+- Useful for wrapping third-party libraries that throw exceptions
+- Does not catch async errors - for that, use `ResultAsync.fromThrowable`
+- The original function is called immediately when the wrapper is invoked
+
+## Best Practices
+
+1. **Always provide an error handler** for better type safety
+2. **Create typed error objects** instead of using strings
+3. **Preserve error information** in the error handler
+4. **Document what errors can be thrown** by the wrapped function
+5. **Use for I/O boundaries** (parsing, file system, network, databases)
+
+## Related
+
+- [ResultAsync.fromThrowable()](/api/result-async/from-throwable) - Async version
+- [fromThrowable()](/api/utilities/from-throwable) - Top-level export
+- [Result.fromPromise()](/api/result-async/from-promise) - For promises that may reject

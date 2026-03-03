@@ -1,0 +1,337 @@
+---
+title: "fromSafePromise()"
+description: "Convert a Promise that never rejects into a ResultAsync"
+---
+
+## Overview
+
+The `fromSafePromise` function converts a `Promise<T>` that you **know will never reject** into a `ResultAsync<T, E>`. Unlike `fromPromise`, it does not require an error handler because it assumes the promise will always resolve successfully.
+
+`fromSafePromise` is a top-level export that references `ResultAsync.fromSafePromise`.
+
+<Warning>
+**Use with Caution**
+
+Only use this function when you are absolutely certain the promise will not reject. If the promise does reject, the `ResultAsync` will reject as well, breaking the Result abstraction. When in doubt, use `fromPromise` instead.
+</Warning>
+
+## Type Signature
+
+```typescript
+function fromSafePromise<T, E = never>(
+  promise: PromiseLike<T>
+): ResultAsync<T, E>
+```
+
+## Parameters
+
+- `promise`: A `PromiseLike<T>` that is guaranteed to never reject
+
+## Return Value
+
+Returns a `ResultAsync<T, E>` that resolves to `Ok<T>` containing the promise's resolved value.
+
+## When to Use
+
+Use `fromSafePromise` when:
+
+1. You're working with `Promise.resolve()` or similar guaranteed-to-succeed promises
+2. You've wrapped a promise in a try-catch that ensures it never rejects
+3. You're using a library that returns promises but documents they never reject
+4. You want to convert a value to `ResultAsync` for API consistency
+
+## Basic Usage
+
+### Converting a Simple Delay
+
+```typescript
+import { fromSafePromise } from 'neverthrow'
+
+function delay<T>(ms: number, value: T): ResultAsync<T, never> {
+  return fromSafePromise(
+    new Promise(resolve => setTimeout(() => resolve(value), ms))
+  )
+}
+
+const result = await delay(1000, 'hello')
+console.log(result._unsafeUnwrap()) // 'hello' after 1 second
+```
+
+### Working with asyncMap
+
+```typescript
+import { ok } from 'neverthrow'
+
+const result = ok(5)
+  .asyncMap(async (n) => {
+    // asyncMap internally uses fromSafePromise
+    await new Promise(resolve => setTimeout(resolve, 100))
+    return n * 2
+  })
+
+const value = await result
+console.log(value._unsafeUnwrap()) // 10
+```
+
+## Real-World Examples
+
+### Rate Limiting
+
+```typescript
+import { fromSafePromise, ResultAsync } from 'neverthrow'
+
+export function slowDown<T>(ms: number) {
+  return (value: T): ResultAsync<T, never> =>
+    fromSafePromise(
+      new Promise<T>((resolve) => {
+        setTimeout(() => resolve(value), ms)
+      })
+    )
+}
+
+// Usage in a processing pipeline
+const result = await processUser(user)
+  .andThen(slowDown(3000)) // Slow down by 3 seconds
+  .andThen(saveUser)
+```
+
+### Simulating Slow Operations
+
+```typescript
+import { fromSafePromise } from 'neverthrow'
+
+// Simulate slow network in development
+function simulateLatency<T>(value: T, ms: number = 500) {
+  if (process.env.NODE_ENV !== 'development') {
+    return okAsync(value)
+  }
+  
+  return fromSafePromise(
+    new Promise<T>(resolve => setTimeout(() => resolve(value), ms))
+  )
+}
+
+const user = await fetchUser(userId)
+  .andThen(user => simulateLatency(user, 1000))
+  .andThen(validateUser)
+```
+
+### Promise.resolve Wrapper
+
+```typescript
+import { fromSafePromise } from 'neverthrow'
+
+// Convert a synchronous value to ResultAsync for API consistency
+function toResultAsync<T>(value: T): ResultAsync<T, never> {
+  return fromSafePromise(Promise.resolve(value))
+}
+
+// Usage: Mix sync and async operations seamlessly
+function processData(useCache: boolean) {
+  if (useCache) {
+    // Return cached value as ResultAsync
+    return toResultAsync(getCachedData())
+  } else {
+    // Fetch fresh data
+    return fetchData()
+  }
+}
+```
+
+### Debounced Operations
+
+```typescript
+import { fromSafePromise, ResultAsync } from 'neverthrow'
+
+function debounce<T>(fn: () => T, ms: number): ResultAsync<T, never> {
+  return fromSafePromise(
+    new Promise<T>((resolve) => {
+      setTimeout(() => resolve(fn()), ms)
+    })
+  )
+}
+
+const debouncedSearch = (query: string) =>
+  debounce(() => performSearch(query), 300)
+```
+
+### Testing Utilities
+
+```typescript
+import { fromSafePromise, ResultAsync } from 'neverthrow'
+
+// Mock async functions in tests
+function mockAsyncOk<T>(value: T): ResultAsync<T, never> {
+  return fromSafePromise(Promise.resolve(value))
+}
+
+function mockAsyncErr<E>(error: E): ResultAsync<never, E> {
+  return errAsync(error)
+}
+
+// In tests
+test('handles user creation', async () => {
+  const mockCreateUser = jest.fn()
+    .mockReturnValue(mockAsyncOk({ id: '123', name: 'John' }))
+  
+  const result = await processUserCreation(mockCreateUser)
+  expect(result.isOk()).toBe(true)
+})
+```
+
+### Animation Delays
+
+```typescript
+import { fromSafePromise, safeTry } from 'neverthrow'
+
+function animateElement(element: HTMLElement, duration: number) {
+  return safeTry(async function*() {
+    // Start animation
+    element.classList.add('animating')
+    
+    // Wait for animation
+    yield* fromSafePromise(
+      new Promise<void>(resolve => setTimeout(resolve, duration))
+    )
+    
+    // Clean up
+    element.classList.remove('animating')
+    
+    return ok(undefined)
+  })
+}
+```
+
+### Batch Processing with Delays
+
+```typescript
+import { fromSafePromise, ResultAsync } from 'neverthrow'
+
+function processBatch<T, E>(
+  items: T[],
+  processor: (item: T) => ResultAsync<void, E>,
+  delayMs: number = 100
+): ResultAsync<void, E> {
+  return items.reduce(
+    (acc, item) =>
+      acc
+        .andThen(() => processor(item))
+        .andThen(() =>
+          fromSafePromise(
+            new Promise<void>(resolve => setTimeout(resolve, delayMs))
+          )
+        ),
+    okAsync<void, E>(undefined)
+  )
+}
+
+// Process 100 items with 100ms delay between each
+await processBatch(items, processItem, 100)
+```
+
+## Internal Usage
+
+Many Result/ResultAsync methods use `fromSafePromise` internally:
+
+### asyncMap Implementation
+
+```typescript
+// Inside the Ok class
+asyncMap<U>(f: (t: T) => Promise<U>): ResultAsync<U, E> {
+  // Uses fromSafePromise because f is expected to return a resolved promise
+  return ResultAsync.fromSafePromise(f(this.value))
+}
+```
+
+## Comparison with fromPromise
+
+### Using fromPromise (Safe, Verbose)
+
+```typescript
+import { fromPromise } from 'neverthrow'
+
+const result = fromPromise(
+  new Promise(resolve => setTimeout(() => resolve(42), 1000)),
+  () => 'This will never happen' // Required but unnecessary
+)
+```
+
+### Using fromSafePromise (Less Safe, Concise)
+
+```typescript
+import { fromSafePromise } from 'neverthrow'
+
+const result = fromSafePromise(
+  new Promise(resolve => setTimeout(() => resolve(42), 1000))
+)
+// No error handler needed
+```
+
+## Type Safety
+
+```typescript
+import { fromSafePromise } from 'neverthrow'
+
+// Error type defaults to 'never'
+const result1 = fromSafePromise(Promise.resolve(42))
+// result1 type: ResultAsync<number, never>
+
+// You can specify error type for API consistency
+const result2 = fromSafePromise<number, string>(Promise.resolve(42))
+// result2 type: ResultAsync<number, string>
+// (even though it will never have a string error)
+```
+
+## Common Pitfalls
+
+<Warning>
+**Don't Use with Potentially Failing Operations**
+
+```typescript
+// BAD: fetch can reject
+const result = fromSafePromise(
+  fetch('https://api.example.com/data')
+)
+// If fetch fails, ResultAsync will reject (breaks abstraction)
+
+// GOOD: Use fromPromise instead
+const result = fromPromise(
+  fetch('https://api.example.com/data'),
+  () => 'FetchError'
+)
+```
+</Warning>
+
+<Warning>
+**Don't Use with Untrusted Promises**
+
+```typescript
+// BAD: Third-party library might reject
+const result = fromSafePromise(
+  untrustedLibrary.doSomething()
+)
+
+// GOOD: Wrap in error handling
+const result = fromPromise(
+  untrustedLibrary.doSomething(),
+  (error) => handleError(error)
+)
+```
+</Warning>
+
+## Key Points
+
+- Only use when promise is **guaranteed** to never reject
+- No error handler required
+- Error type defaults to `never`
+- Useful for delays, timeouts, and Promise.resolve
+- Used internally by `asyncMap` and similar methods
+- When in doubt, use `fromPromise` instead
+- If the promise rejects, the entire ResultAsync abstraction breaks
+
+## Related
+
+- [fromPromise()](/api/utilities/from-promise) - For promises that might reject
+- [fromAsyncThrowable()](/api/utilities/from-async-throwable) - For wrapping async functions
+- [ResultAsync](/api/result-async/overview) - The ResultAsync class
+- [asyncMap()](/api/result/methods#asyncmap) - Uses fromSafePromise internally

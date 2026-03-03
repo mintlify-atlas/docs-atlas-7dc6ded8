@@ -1,80 +1,277 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Learn how to use Result types in under 5 minutes
 ---
 
-## Get started in three steps
+This guide will teach you the fundamentals of NeverThrow through practical examples.
 
-Get your documentation site running locally and make your first customization.
+## Basic Result types
 
-### Step 1: Set up your local environment
+Every `Result` is either `Ok` (success) or `Err` (failure). Create them using the `ok()` and `err()` functions:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+```typescript
+import { ok, err } from 'neverthrow'
 
-### Step 2: Deploy your changes
+const success = ok({ myData: 'test' })
+const failure = err('Oh noooo')
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+console.log(success.isOk())  // true
+console.log(success.isErr()) // false
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+console.log(failure.isOk())  // false
+console.log(failure.isErr()) // true
+```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+<Note>
+  The `Result` type is defined as: `type Result<T, E> = Ok<T, E> | Err<T, E>` where `T` is the success value type and `E` is the error type.
+</Note>
 
-### Step 3: Go live
+## Your first Result-returning function
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+Instead of throwing errors, return a `Result` that makes success and failure explicit:
+
+<CodeGroup>
+
+```typescript Throwing (before)
+function parseJSON(jsonString: string): unknown {
+  return JSON.parse(jsonString) // throws on invalid JSON
+}
+
+// Caller doesn't know this can throw
+const data = parseJSON(userInput)
+```
+
+```typescript Result (after)
+import { Result, fromThrowable } from 'neverthrow'
+
+type ParseError = { message: string }
+
+const safeJsonParse = fromThrowable(
+  JSON.parse,
+  (): ParseError => ({ message: 'Parse Error' })
+)
+
+// Type is Result<unknown, ParseError>
+const result = safeJsonParse(userInput)
+```
+
+</CodeGroup>
+
+<Tip>
+  **Key insight**: With `Result`, errors become part of your function's type signature, making them impossible to ignore.
+</Tip>
+
+## Transforming Results with map
+
+Use `.map()` to transform the success value while leaving errors untouched:
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const result = ok([1, 2, 3, 4])
+  .map(arr => arr.map(n => n * 2))
+  .map(arr => arr.reduce((a, b) => a + b))
+
+result.isOk() // true
+result._unsafeUnwrap() // 20
+
+// Errors pass through unchanged
+const errorResult = err('failed')
+  .map(arr => arr.map(n => n * 2))
+  
+errorResult.isErr() // true
+```
+
+## Chaining with andThen
+
+Use `.andThen()` when your next operation might also fail:
+
+<Steps>
+  <Step title="Define functions that return Results">
+    ```typescript
+    import { ok, err, Result } from 'neverthrow'
+
+    function validateAge(age: number): Result<number, string> {
+      if (age < 0) return err('Age cannot be negative')
+      if (age > 150) return err('Age seems unrealistic')
+      return ok(age)
+    }
+
+    function checkAdult(age: number): Result<number, string> {
+      if (age < 18) return err('Must be 18 or older')
+      return ok(age)
+    }
+    ```
+  </Step>
+
+  <Step title="Chain them with andThen">
+    ```typescript
+    const result = validateAge(25)
+      .andThen(checkAdult)
+
+    result.match(
+      (age) => `Valid adult age: ${age}`,
+      (error) => `Error: ${error}`
+    )
+    // "Valid adult age: 25"
+    ```
+  </Step>
+
+  <Step title="Short-circuits on first error">
+    ```typescript
+    const result = validateAge(-5)
+      .andThen(checkAdult)
+
+    result.match(
+      (age) => `Valid adult age: ${age}`,
+      (error) => `Error: ${error}`
+    )
+    // "Error: Age cannot be negative"
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  **`map` vs `andThen`**: Use `map` when your transformation cannot fail. Use `andThen` when your transformation returns another `Result`.
+</Note>
+
+## Handling both cases with match
+
+Use `.match()` to handle both success and error cases and return a final value:
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+function divide(a: number, b: number): Result<number, string> {
+  if (b === 0) return err('Division by zero')
+  return ok(a / b)
+}
+
+const message = divide(10, 2).match(
+  (value) => `Result: ${value}`,
+  (error) => `Error: ${error}`
+)
+
+console.log(message) // "Result: 5"
+```
+
+Alternatively, use `.unwrapOr()` to provide a default value for errors:
+
+```typescript
+const value = divide(10, 0).unwrapOr(0)
+console.log(value) // 0
+```
+
+## Working with async code
+
+For asynchronous operations, use `ResultAsync` which behaves like a Promise but with Result methods:
+
+```typescript
+import { ResultAsync, okAsync, errAsync } from 'neverthrow'
+
+function fetchUser(id: string): ResultAsync<User, string> {
+  return ResultAsync.fromPromise(
+    fetch(`/api/users/${id}`).then(r => r.json()),
+    () => 'Failed to fetch user'
+  )
+}
+
+function validateUser(user: User): Result<User, string> {
+  if (!user.email) return err('Email is required')
+  return ok(user)
+}
+
+// Chain sync and async operations seamlessly
+const result = await fetchUser('123')
+  .andThen(validateUser)
+  .map(user => user.email)
+
+result.match(
+  (email) => console.log('Email:', email),
+  (error) => console.error('Error:', error)
+)
+```
+
+<Tip>
+  `ResultAsync` is thenable, so you can use it with `await` or `.then()` just like a regular Promise.
+</Tip>
+
+## Combining multiple Results
+
+Use `Result.combine()` to aggregate multiple Results into a single Result:
+
+```typescript
+import { ok, err, Result } from 'neverthrow'
+
+const results = [
+  ok(1),
+  ok(2),
+  ok(3)
+]
+
+const combined = Result.combine(results)
+// Ok([1, 2, 3])
+
+// Short-circuits on first error
+const resultsWithError = [
+  ok(1),
+  err('failed'),
+  ok(3)
+]
+
+const combinedWithError = Result.combine(resultsWithError)
+// Err('failed')
+```
+
+To collect all errors instead of short-circuiting, use `Result.combineWithAllErrors()`:
+
+```typescript
+const results = [
+  ok(123),
+  err('error 1'),
+  ok(456),
+  err('error 2')
+]
+
+const combined = Result.combineWithAllErrors(results)
+// Err(['error 1', 'error 2'])
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+You now know the basics of NeverThrow. Here's what to explore next:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card
+    title="Core concepts"
+    icon="book"
+    href="/concepts/result-type"
+  >
+    Learn about the Result type in depth
+  </Card>
+  <Card
+    title="Async operations"
+    icon="clock"
+    href="/guides/async-operations"
+  >
+    Master ResultAsync for promises
+  </Card>
+  <Card
+    title="Error recovery"
+    icon="arrow-rotate-left"
+    href="/guides/error-recovery"
+  >
+    Handle and recover from errors with orElse
+  </Card>
+  <Card
+    title="API reference"
+    icon="code"
+    href="/api/result/ok"
+  >
+    Browse all available methods
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+<Warning>
+  **Remember**: Never use `._unsafeUnwrap()` in production code. It should only be used in test environments. Use `.match()` or `.unwrapOr()` instead.
+</Warning>

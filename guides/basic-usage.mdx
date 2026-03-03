@@ -1,0 +1,281 @@
+---
+title: 'Basic Usage'
+description: 'Learn how to create Results, check their state, and perform basic operations'
+---
+
+## Creating Results
+
+NeverThrow provides two core types for encoding success and failure:
+
+### Creating Ok Values
+
+Use `ok()` to create a successful result:
+
+```typescript
+import { ok } from 'neverthrow'
+
+const result = ok(42)
+
+result.isOk()  // true
+result.isErr() // false
+```
+
+You can wrap any value, including `null` and `undefined`:
+
+```typescript
+const nullResult = ok(null)
+const voidResult = ok(undefined)
+
+// Both are valid Ok values
+nullResult.isOk()  // true
+voidResult.isOk()  // true
+```
+
+### Creating Err Values
+
+Use `err()` to create an error result:
+
+```typescript
+import { err } from 'neverthrow'
+
+const result = err('Something went wrong')
+
+result.isOk()  // false
+result.isErr() // true
+```
+
+## Checking Result State
+
+### Type Guards with isOk and isErr
+
+Use `isOk()` and `isErr()` to check and narrow the type:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+function divide(a: number, b: number): Result<number, string> {
+  if (b === 0) {
+    return err('Division by zero')
+  }
+  return ok(a / b)
+}
+
+const result = divide(10, 2)
+
+if (result.isOk()) {
+  // TypeScript knows this is Ok<number, string>
+  console.log(result.value) // 5
+} else {
+  // TypeScript knows this is Err<number, string>
+  console.log(result.error) // Won't execute in this case
+}
+```
+
+### Pattern Matching with match
+
+Handle both cases at once using `match()`:
+
+```typescript
+const result = divide(10, 2)
+
+const message = result.match(
+  (value) => `Success: ${value}`,
+  (error) => `Error: ${error}`
+)
+
+console.log(message) // "Success: 5"
+```
+
+Both callbacks must return the same type, and `match` unwraps the Result:
+
+```typescript
+const result: Result<number, string> = ok(42)
+
+// Both functions return strings
+const output: string = result.match(
+  (num) => num.toString(),
+  (err) => `Error: ${err}`
+)
+```
+
+## Basic Transformations
+
+### Transforming Ok Values with map
+
+`map()` transforms the value inside an `Ok`, leaving `Err` untouched:
+
+```typescript
+const result = ok(12)
+  .map(n => n * 2)
+  .map(n => n.toString())
+
+result._unsafeUnwrap() // "24"
+```
+
+If the Result is an `Err`, `map` is skipped:
+
+```typescript
+const result = err('failed')
+  .map(n => n * 2)  // Not called
+  .map(n => n.toString())  // Not called
+
+result._unsafeUnwrapErr() // "failed"
+```
+
+### Transforming Err Values with mapErr
+
+`mapErr()` transforms the error, leaving `Ok` values untouched:
+
+```typescript
+const result = err('404')
+  .mapErr(code => `Error code: ${code}`)
+
+result._unsafeUnwrapErr() // "Error code: 404"
+```
+
+Useful for adding context to errors:
+
+```typescript
+function parseJSON(input: string): Result<unknown, string> {
+  try {
+    return ok(JSON.parse(input))
+  } catch (e) {
+    return err('Parse failed')
+  }
+}
+
+const result = parseJSON('invalid')
+  .mapErr(err => ({ message: err, timestamp: Date.now() }))
+
+// Error now includes timestamp
+```
+
+## Extracting Values
+
+### Using unwrapOr for Default Values
+
+`unwrapOr()` extracts the value or returns a default:
+
+```typescript
+const okResult = ok(42)
+const errResult = err('oops')
+
+okResult.unwrapOr(0)   // 42
+errResult.unwrapOr(0)  // 0
+```
+
+<Tabs>
+  <Tab title="Real-World Example">
+    ```typescript
+    function getUsername(userId: string): Result<string, string> {
+      // ... database lookup
+      return ok('alice')
+    }
+
+    // Display username or fallback
+    const displayName = getUsername('123')
+      .map(name => name.toUpperCase())
+      .unwrapOr('Anonymous')
+
+    console.log(`Welcome, ${displayName}!`)
+    ```
+  </Tab>
+  <Tab title="With Error Recovery">
+    ```typescript
+    const config = loadConfig()
+      .map(cfg => cfg.timeout)
+      .unwrapOr(5000) // Default timeout
+
+    console.log(`Using timeout: ${config}ms`)
+    ```
+  </Tab>
+</Tabs>
+
+### Safe Unwrapping in Tests
+
+For testing, use `_unsafeUnwrap()` and `_unsafeUnwrapErr()`:
+
+```typescript
+import { expect } from 'vitest'
+
+const result = ok(42)
+expect(result._unsafeUnwrap()).toBe(42)
+
+const error = err('failed')
+expect(error._unsafeUnwrapErr()).toBe('failed')
+```
+
+<Warning>
+  Never use `_unsafeUnwrap()` in production code. These methods throw exceptions if called on the wrong variant and should only be used in test environments.
+</Warning>
+
+## Comparing Results
+
+Result instances are comparable for testing:
+
+```typescript
+import { expect } from 'vitest'
+
+expect(ok(42)).toEqual(ok(42))
+expect(ok(42)).not.toEqual(ok(43))
+expect(err(42)).toEqual(err(42))
+expect(err(42)).not.toEqual(err(43))
+```
+
+## Complete Example: Form Validation
+
+Here's a real-world example combining basic operations:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+interface User {
+  email: string
+  age: number
+}
+
+function validateEmail(email: string): Result<string, string> {
+  if (email.includes('@')) {
+    return ok(email)
+  }
+  return err('Invalid email format')
+}
+
+function validateAge(age: number): Result<number, string> {
+  if (age >= 18) {
+    return ok(age)
+  }
+  return err('Must be 18 or older')
+}
+
+// Validate and transform
+const emailResult = validateEmail('user@example.com')
+const ageResult = validateAge(25)
+
+if (emailResult.isOk() && ageResult.isOk()) {
+  const user: User = {
+    email: emailResult.value,
+    age: ageResult.value
+  }
+  console.log('User created:', user)
+}
+
+// Or use match for immediate feedback
+const emailStatus = validateEmail('invalid-email').match(
+  (email) => `Valid: ${email}`,
+  (error) => `Error: ${error}`
+)
+
+console.log(emailStatus) // "Error: Invalid email format"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Chaining Operations" icon="link" href="/guides/chaining-operations">
+    Learn how to compose multiple operations with `andThen`
+  </Card>
+  <Card title="Async Operations" icon="bolt" href="/guides/async-operations">
+    Work with asynchronous code using `ResultAsync`
+  </Card>
+</CardGroup>

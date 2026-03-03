@@ -1,0 +1,87 @@
+---
+title: ResultAsync.andThen
+description: Chain operations that return Results
+---
+
+## Overview
+
+Chains operations on a `ResultAsync`, where the next operation depends on the success of the previous one. The callback must return a `Result` or `ResultAsync`.
+
+## Signature
+
+```typescript
+class ResultAsync<T, E> {
+  andThen<U, F>(
+    f: (t: T) => Result<U, F> | ResultAsync<U, F>
+  ): ResultAsync<U, E | F>
+}
+```
+
+<ParamField path="f" type="(t: T) => Result<U, F> | ResultAsync<U, F>" required>
+  Function that takes the Ok value and returns a new Result or ResultAsync
+</ParamField>
+
+**Returns:** `ResultAsync<U, E | F>` - A new ResultAsync with combined error types
+
+## Usage
+
+### Sequential async operations
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+const processUser = (id: number) => {
+  return fetchUser(id)              // ResultAsync<User, FetchError>
+    .andThen(validateUser)           // Result<User, ValidationError>
+    .andThen(saveUser)               // ResultAsync<User, SaveError>
+    .andThen(sendNotification)       // ResultAsync<void, NotificationError>
+}
+
+// Type: ResultAsync<void, FetchError | ValidationError | SaveError | NotificationError>
+```
+
+### Mixing sync and async
+
+```typescript
+const result = await fetchData()     // ResultAsync<Data, Error>
+  .andThen(data => {                 // Sync Result
+    if (data.valid) {
+      return ok(data)
+    }
+    return err('Invalid data')
+  })
+  .andThen(processData)              // ResultAsync<Processed, Error>
+```
+
+### Flattening nested Results
+
+```typescript
+// Without andThen - nested ResultAsync
+const nested: ResultAsync<ResultAsync<Data, Error>, Error> = 
+  okAsync(fetchData())
+
+// With andThen - flattened
+const flat: ResultAsync<Data, Error> = 
+  okAsync(fetchData()).andThen(data => data)
+```
+
+## Key characteristics
+
+<Note>
+  Unlike `map`, `andThen` can introduce new error types. The resulting error type is the union of all possible errors.
+</Note>
+
+- **Error propagation**: Short-circuits if any operation fails
+- **Type unions**: Combines error types from all operations
+- **Flexible**: Accepts both sync `Result` and async `ResultAsync`
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="map" icon="arrow-right" href="./map">
+    Transform without changing Result structure
+  </Card>
+  <Card title="orElse" icon="rotate-left" href="./or-else">
+    Handle errors in the chain
+  </Card>
+</CardGroup>

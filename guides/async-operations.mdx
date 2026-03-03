@@ -1,0 +1,480 @@
+---
+title: 'Async Operations'
+description: 'Handle asynchronous operations with ResultAsync, fromPromise, and async/await patterns'
+---
+
+## Introduction to ResultAsync
+
+`ResultAsync` wraps a `Promise<Result<T, E>>` and provides the same API as `Result`, allowing you to chain operations without awaiting at each step:
+
+```typescript
+import { ResultAsync, okAsync, errAsync } from 'neverthrow'
+
+// Create async results
+const asyncOk = okAsync(42)      // ResultAsync<number, never>
+const asyncErr = errAsync('oops') // ResultAsync<never, string>
+
+// Await to get the Result
+const result = await asyncOk
+result.isOk() // true
+result._unsafeUnwrap() // 42
+```
+
+## Creating ResultAsync
+
+### From Safe Promises
+
+Use `fromSafePromise` for promises that never reject:
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+const promise = Promise.resolve(42)
+const resultAsync = ResultAsync.fromSafePromise(promise)
+
+const result = await resultAsync
+result._unsafeUnwrap() // 42
+```
+
+### From Promises with Error Handling
+
+Use `fromPromise` to convert promises that might reject:
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+interface User {
+  id: string
+  name: string
+}
+
+async function fetchUser(id: string): Promise<User> {
+  const response = await fetch(`/api/users/${id}`)
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+  return response.json()
+}
+
+// Convert to ResultAsync with error handler
+const userResult = ResultAsync.fromPromise(
+  fetchUser('123'),
+  (error) => `Failed to fetch user: ${error}`
+)
+
+// Type: ResultAsync<User, string>
+const result = await userResult
+result.match(
+  (user) => console.log('User:', user.name),
+  (error) => console.error('Error:', error)
+)
+```
+
+### From Throwable Functions
+
+Create a safe wrapper for functions that might throw:
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+interface DatabaseError {
+  code: string
+  message: string
+}
+
+// Original async function that throws
+async function insertUser(user: User): Promise<User> {
+  // Might throw DatabaseError
+  return await db.insert('users', user)
+}
+
+// Create safe version
+const safeInsertUser = ResultAsync.fromThrowable(
+  insertUser,
+  (error): DatabaseError => ({
+    code: 'DB_ERROR',
+    message: String(error)
+  })
+)
+
+// Now returns ResultAsync instead of throwing
+const result = await safeInsertUser({ id: '1', name: 'Alice' })
+// Type: Result<User, DatabaseError>
+```
+
+<Info>
+  `fromThrowable` is safer than `fromPromise` because it catches both synchronous throws (before the promise is created) and asynchronous rejections.
+</Info>
+
+## Chaining Async Operations
+
+### Using map with Async Functions
+
+Both sync and async functions work with `map`:
+
+```typescript
+import { okAsync } from 'neverthrow'
+
+const result = await okAsync(12)
+  .map(n => n * 2)                    // Sync function
+  .map(n => Promise.resolve(n + 10)) // Async function
+
+result._unsafeUnwrap() // 34
+```
+
+### Using andThen for Async Chains
+
+`andThen` works with both `Result` and `ResultAsync`:
+
+```typescript
+import { Result, ResultAsync, ok } from 'neverthrow'
+
+function validateUser(user: User): Result<User, string> {
+  if (!user.name) return err('Name required')
+  return ok(user)
+}
+
+function saveUser(user: User): ResultAsync<User, string> {
+  return ResultAsync.fromPromise(
+    db.insert('users', user),
+    (e) => `Database error: ${e}`
+  )
+}
+
+function sendWelcomeEmail(user: User): ResultAsync<void, string> {
+  return ResultAsync.fromPromise(
+    emailService.send(user.email, 'Welcome!'),
+    (e) => `Email error: ${e}`
+  )
+}
+
+// Chain sync and async operations
+const result = await validateUser(user)
+  .andThen(saveUser)          // Result -> ResultAsync
+  .andThen(sendWelcomeEmail) // ResultAsync -> ResultAsync
+
+// Type: Result<void, string>
+result.match(
+  () => console.log('User created and welcomed!'),
+  (error) => console.error('Failed:', error)
+)
+```
+
+## Real-World Example: API Request Pipeline
+
+<Steps>
+  <Step title="Define the data types">
+    ```typescript
+    interface ApiResponse {
+      data: unknown
+      status: number
+    }
+
+    interface User {
+      id: string
+      email: string
+      name: string
+    }
+
+    interface ValidationError {
+      field: string
+      message: string
+    }
+    ```
+  </Step>
+
+  <Step title="Create helper functions">
+    ```typescript
+    import { ResultAsync, err, ok } from 'neverthrow'
+
+    function fetchApi(url: string): ResultAsync<ApiResponse, string> {
+      return ResultAsync.fromPromise(
+        fetch(url).then(r => ({
+          data: r.json(),
+          status: r.status
+        })),
+        (error) => `Network error: ${error}`
+      )
+    }
+
+    function checkStatus(response: ApiResponse): Result<ApiResponse, string> {
+      if (response.status >= 400) {
+        return err(`HTTP ${response.status}`)
+      }
+      return ok(response)
+    }
+
+    function parseUser(response: ApiResponse): Result<User, ValidationError> {
+      const data = response.data as any
+      
+      if (!data.id || !data.email || !data.name) {
+        return err({
+          field: 'user',
+          message: 'Missing required fields'
+        })
+      }
+
+      return ok({
+        id: data.id,
+        email: data.email,
+        name: data.name
+      })
+    }
+
+    function cacheUser(user: User): ResultAsync<User, string> {
+      return ResultAsync.fromPromise(
+        cache.set(`user:${user.id}`, user),
+        (e) => `Cache error: ${e}`
+      ).map(() => user) // Return original user
+    }
+    ```
+  </Step>
+
+  <Step title="Compose the pipeline">
+    ```typescript
+    function getUserById(
+      id: string
+    ): ResultAsync<User, string | ValidationError> {
+      return fetchApi(`/api/users/${id}`)
+        .andThen(checkStatus)
+        .andThen(parseUser)
+        .andThen(cacheUser)
+    }
+
+    // Usage
+    const result = await getUserById('123')
+    
+    result.match(
+      (user) => console.log('Fetched user:', user.name),
+      (error) => {
+        if (typeof error === 'string') {
+          console.error('System error:', error)
+        } else {
+          console.error(`Validation error on ${error.field}: ${error.message}`)
+        }
+      }
+    )
+    ```
+  </Step>
+</Steps>
+
+## Async Error Mapping
+
+`mapErr` also supports async functions:
+
+```typescript
+import { errAsync } from 'neverthrow'
+
+async function logError(error: string): Promise<string> {
+  await logger.error(error)
+  return `Logged: ${error}`
+}
+
+const result = await errAsync('Database connection failed')
+  .mapErr(logError) // Async error transformation
+
+result._unsafeUnwrapErr() // "Logged: Database connection failed"
+```
+
+## Combining Sync and Async Results
+
+### From Result to ResultAsync
+
+Use `asyncAndThen` or `asyncMap` on a regular `Result`:
+
+```typescript
+import { ok } from 'neverthrow'
+
+// asyncAndThen: Result -> ResultAsync
+const result1 = ok(42)
+  .asyncAndThen(n => okAsync(n * 2))
+// Type: ResultAsync<number, never>
+
+// asyncMap: Result -> ResultAsync
+const result2 = ok(42)
+  .asyncMap(n => Promise.resolve(n * 2))
+// Type: ResultAsync<number, never>
+```
+
+### From ResultAsync to Result
+
+Simply await the `ResultAsync`:
+
+```typescript
+const asyncResult: ResultAsync<number, string> = okAsync(42)
+const syncResult: Result<number, string> = await asyncResult
+```
+
+## Using with async/await
+
+`ResultAsync` is thenable, so it works seamlessly with async/await:
+
+```typescript
+import { okAsync, errAsync } from 'neverthrow'
+
+async function processData() {
+  // Can await directly
+  const result = await okAsync(42)
+    .map(n => n * 2)
+  
+  if (result.isOk()) {
+    console.log(result.value) // 84
+  }
+}
+
+// Works with Promise.all
+const results = await Promise.all([
+  okAsync(1),
+  okAsync(2),
+  okAsync(3)
+])
+
+// results is Result<number, E>[]
+results.forEach(r => {
+  if (r.isOk()) console.log(r.value)
+})
+```
+
+## Error Recovery with orElse
+
+Recover from errors asynchronously:
+
+```typescript
+import { ResultAsync, okAsync, errAsync } from 'neverthrow'
+
+function fetchFromPrimary(id: string): ResultAsync<string, string> {
+  return errAsync('Primary database down')
+}
+
+function fetchFromBackup(error: string): ResultAsync<string, string> {
+  console.log('Falling back due to:', error)
+  return okAsync('Data from backup')
+}
+
+const result = await fetchFromPrimary('123')
+  .orElse(fetchFromBackup)
+
+result._unsafeUnwrap() // "Data from backup"
+```
+
+## Side Effects with andTee
+
+Perform side effects without affecting the result:
+
+```typescript
+import { okAsync } from 'neverthrow'
+
+const result = await okAsync({ id: '1', name: 'Alice' })
+  .andTee(user => {
+    // Side effect: logging
+    console.log('Processing user:', user.name)
+  })
+  .andTee(user => {
+    // Side effect: analytics
+    analytics.track('user_processed', { userId: user.id })
+  })
+  .map(user => user.name)
+
+// Result still contains the user name
+result._unsafeUnwrap() // "Alice"
+```
+
+Even if the side effect throws, the result is unaffected:
+
+```typescript
+const result = await okAsync(42)
+  .andTee(() => {
+    throw new Error('Logging failed')
+  })
+  .map(n => n * 2)
+
+result._unsafeUnwrap() // 84 - still succeeds
+```
+
+## Pattern: Parallel Async Operations
+
+Use `combine` for multiple async operations (covered in detail in [Combining Results](/guides/combining-results)):
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+const operations = [
+  fetchUser('1'),
+  fetchUser('2'),
+  fetchUser('3')
+]
+
+// All succeed or fail together
+const combined = await ResultAsync.combine(operations)
+
+combined.match(
+  (users) => console.log(`Fetched ${users.length} users`),
+  (error) => console.error('At least one fetch failed:', error)
+)
+```
+
+## Converting Throwable Code
+
+Wrap existing promise-based code:
+
+<Tabs>
+  <Tab title="Before (throws)">
+    ```typescript
+    async function saveOrder(order: Order): Promise<Order> {
+      const validated = await validateOrder(order)
+      const saved = await db.insert('orders', validated)
+      await sendConfirmation(saved.id)
+      return saved
+    }
+
+    // Usage requires try-catch
+    try {
+      const order = await saveOrder(myOrder)
+      console.log('Success:', order.id)
+    } catch (error) {
+      console.error('Failed:', error)
+    }
+    ```
+  </Tab>
+  
+  <Tab title="After (safe)">
+    ```typescript
+    function saveOrder(order: Order): ResultAsync<Order, string> {
+      return ResultAsync.fromPromise(
+        validateOrder(order),
+        (e) => `Validation failed: ${e}`
+      )
+      .andThen(validated =>
+        ResultAsync.fromPromise(
+          db.insert('orders', validated),
+          (e) => `Database error: ${e}`
+        )
+      )
+      .andThen(saved =>
+        ResultAsync.fromPromise(
+          sendConfirmation(saved.id),
+          (e) => `Email error: ${e}`
+        ).map(() => saved) // Return the order
+      )
+    }
+
+    // Usage - no try-catch needed
+    const result = await saveOrder(myOrder)
+    result.match(
+      (order) => console.log('Success:', order.id),
+      (error) => console.error('Failed:', error)
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Combining Results" icon="layer-group" href="/guides/combining-results">
+    Learn how to work with multiple Results using combine
+  </Card>
+  <Card title="Error Recovery" icon="life-ring" href="/guides/error-recovery">
+    Master error handling with orElse, match, and unwrapOr
+  </Card>
+</CardGroup>

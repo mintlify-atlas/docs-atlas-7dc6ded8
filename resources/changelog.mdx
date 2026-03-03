@@ -1,0 +1,317 @@
+---
+title: Changelog
+description: Version history and release notes for NeverThrow
+---
+
+## Changelog
+
+A comprehensive history of changes, improvements, and bug fixes in NeverThrow.
+
+## v8.2.0 (Current)
+
+### Minor Changes
+
+<Accordion title="Add orTee method for error track side effects">
+
+**Pull Request:** [#615](https://github.com/supermacro/neverthrow/pull/615)  
+**Contributor:** [@konker](https://github.com/konker)
+
+Added `orTee`, which is the equivalent of `andTee` but for the error track. This method allows you to perform side effects on error values without affecting the Result's error type.
+
+**Example:**
+```typescript
+import { parseUserInput } from 'imaginary-parser'
+import { logParseError } from 'imaginary-logger'
+import { insertUser } from 'imaginary-database'
+
+const resAsync = parseUserInput(userInput)
+  .orTee(logParseError)  // Log errors without affecting the Result
+  .asyncAndThen(insertUser)
+
+// Note: No LogError appears in the Result type
+```
+
+</Accordion>
+
+<Accordion title="Allow void arguments in ok/err/okAsync/errAsync">
+
+**Pull Request:** [#584](https://github.com/supermacro/neverthrow/pull/584)  
+**Contributor:** [@macksal](https://github.com/macksal)
+
+The `ok`, `err`, `okAsync`, and `errAsync` functions now accept zero arguments when returning `void`.
+
+**Example:**
+```typescript
+// Now valid:
+const result: Result<void, never> = ok()
+const error: Result<never, void> = err()
+const asyncResult: ResultAsync<void, never> = okAsync()
+const asyncError: ResultAsync<never, void> = errAsync()
+```
+
+</Accordion>
+
+---
+
+## v8.1.1
+
+### Patch Changes
+
+<Accordion title="Documentation updates for safeTry">
+
+**Pull Request:** [#600](https://github.com/supermacro/neverthrow/pull/600)  
+**Contributor:** [@m-shaka](https://github.com/m-shaka)
+
+Updated README.md documentation about `safeTry` and added `@deprecated` tag to `safeUnwrap`.
+
+</Accordion>
+
+---
+
+## v8.1.0
+
+### Minor Changes
+
+<Accordion title="safeTry no longer requires safeUnwrap">
+
+**Pull Request:** [#589](https://github.com/supermacro/neverthrow/pull/589)  
+**Contributor:** [@dmmulroy](https://github.com/dmmulroy)
+
+`safeTry` no longer requires calling `.safeUnwrap()` on Results within the generator function. You can now use `yield*` directly on Result values.
+
+**Before:**
+```typescript
+function myFunc(): Result<number, string> {
+  return safeTry<number, string>(function*() {
+    const value = yield* mayFail().safeUnwrap()  // Had to call safeUnwrap
+    return ok(value * 2)
+  })
+}
+```
+
+**After:**
+```typescript
+function myFunc(): ResultAsync<number, string> {
+  return safeTry<number, string>(function*() {
+    const value = yield* mayFail()  // No safeUnwrap needed
+    return ok(value * 2)
+  })
+}
+```
+
+</Accordion>
+
+---
+
+## v8.0.0
+
+### Major Changes
+
+<Accordion title="Breaking: orElse type argument order changed">
+
+**Pull Request:** [#484](https://github.com/supermacro/neverthrow/pull/484)  
+**Contributor:** [@braxtonhall](https://github.com/braxtonhall)
+
+The `orElse` method now allows changing ok types, making the types match the implementation.
+
+**Breaking Change:**
+
+The ok type must now be provided before the err type when explicitly providing type arguments.
+
+```diff
+- result.orElse<ErrType>(foo)
++ result.orElse<OkType, ErrType>(foo)
+```
+
+**Migration:**
+
+This only applies if type arguments were explicitly provided at an `orElse` callsite. If the type arguments were inferred, no updates are needed during the upgrade.
+
+</Accordion>
+
+---
+
+## v7.2.0
+
+### Minor Changes
+
+<Accordion title="safeTry returns ResultAsync for better composability">
+
+**Pull Request:** [#562](https://github.com/supermacro/neverthrow/pull/562)  
+**Contributor:** [@sharno](https://github.com/sharno)
+
+Changed the return type of `safeTry` from `Promise<Result<T, E>>` to `ResultAsync<T, E>` for better composability.
+
+**What This Means:**
+
+`ResultAsync` is thenable and behaves like a native Promise, but provides additional methods like `map`, `andThen`, and `mapErr` without needing to `await` or `.then()` first.
+
+**Example:**
+```typescript
+// Now you can chain directly
+safeTry(async function* () {
+  // ...
+})
+  .map(x => x * 2)
+  .andThen(processValue)
+  .match(
+    (value) => console.log(value),
+    (error) => console.error(error)
+  )
+```
+
+</Accordion>
+
+---
+
+## v7.1.0
+
+### Minor Changes
+
+<Accordion title="Add andTee and andThrough for side effects">
+
+**Pull Request:** [#467](https://github.com/supermacro/neverthrow/pull/467)  
+**Contributor:** [@untidy-hair](https://github.com/untidy-hair)
+
+Added `andTee` and `andThrough` methods to handle side effects:
+
+- **`andTee`**: Perform side effects without affecting the Result type (errors are ignored)
+- **`andThrough`**: Validate or perform checks where errors should propagate
+
+**Example:**
+```typescript
+// andTee for logging (errors ignored)
+parseUserInput(userInput)
+  .andTee(logUser)
+  .asyncAndThen(insertUser)
+
+// andThrough for validation (errors propagated)
+parseUserInput(userInput)
+  .andThrough(validateUser)
+  .asyncAndThen(insertUser)
+```
+
+</Accordion>
+
+### Patch Changes
+
+<Accordion title="Fix combineWithAllErrors types">
+
+**Pull Request:** [#483](https://github.com/supermacro/neverthrow/pull/483)  
+**Contributor:** [@braxtonhall](https://github.com/braxtonhall)
+
+Fixed type definitions for `combineWithAllErrors` to properly handle error arrays.
+
+</Accordion>
+
+<Accordion title="Improve err() string inference">
+
+**Pull Request:** [#563](https://github.com/supermacro/neverthrow/pull/563)  
+**Contributor:** [@mattpocock](https://github.com/mattpocock)
+
+Made `err()` infer strings narrowly for easier error tagging.
+
+**Example:**
+```typescript
+// Error type is inferred as 'NotFound' (not generic string)
+const notFound = err('NotFound')
+
+// Useful for pattern matching
+if (result.isErr()) {
+  switch (result.error) {
+    case 'NotFound':
+      return 404
+    case 'Unauthorized':
+      return 401
+    default:
+      return 500
+  }
+}
+```
+
+</Accordion>
+
+---
+
+## v7.0.1
+
+### Patch Changes
+
+<Accordion title="Make safeTry type inference more strict">
+
+**Pull Request:** [#527](https://github.com/supermacro/neverthrow/pull/527)  
+**Contributor:** [@3846masa](https://github.com/3846masa)
+
+Changed type definitions to make inferring types of `safeTry` more strict and accurate.
+
+</Accordion>
+
+<Accordion title="Enhance match type inference">
+
+**Pull Request:** [#497](https://github.com/supermacro/neverthrow/pull/497)  
+**Contributor:** [@braxtonhall](https://github.com/braxtonhall)
+
+Enhanced type inference for the `match` method to better handle callback return types.
+
+</Accordion>
+
+---
+
+## v7.0.0
+
+### Major Changes
+
+<Accordion title="Declare minimum Node.js version">
+
+**Pull Request:** [#553](https://github.com/supermacro/neverthrow/pull/553)  
+**Contributor:** [@m-shaka](https://github.com/m-shaka)
+
+Declared the minimum supported Node.js version in the `engines` field of `package.json`.
+
+**Requirements:**
+- Node.js: `>=18`
+- npm: `>=11`
+
+**Note:**
+
+`NeverThrow` does not depend on any Node.js version-specific features, so it should work with any version of Node.js that supports ES6 and other runtimes like browsers, Deno, etc.
+
+The engine declaration is primarily for maintaining a consistent development environment.
+
+</Accordion>
+
+---
+
+## Earlier Versions
+
+For a complete history of changes in versions prior to v7.0.0, please visit the [GitHub releases page](https://github.com/supermacro/neverthrow/releases).
+
+## Release Channels
+
+NeverThrow follows [semantic versioning](https://semver.org/):
+
+- **Major versions** (x.0.0) contain breaking changes
+- **Minor versions** (0.x.0) add new features in a backward-compatible manner
+- **Patch versions** (0.0.x) contain bug fixes and documentation updates
+
+## Stay Updated
+
+- **Watch the repository** on [GitHub](https://github.com/supermacro/neverthrow) for release notifications
+- **Follow releases** via [RSS feed](https://github.com/supermacro/neverthrow/releases.atom)
+- **Subscribe to npm** updates for the [neverthrow package](https://www.npmjs.com/package/neverthrow)
+
+## Contributing
+
+Interested in contributing to NeverThrow?
+
+- Check out [open issues](https://github.com/supermacro/neverthrow/issues)
+- Read the [contributing guidelines](https://github.com/supermacro/neverthrow/blob/master/CONTRIBUTING.md)
+- Join [GitHub Discussions](https://github.com/supermacro/neverthrow/discussions)
+
+## Support the Project
+
+If you find NeverThrow useful:
+
+- [Sponsor the maintainer](https://github.com/sponsors/supermacro/)
+- [Buy the maintainer a coffee](https://ko-fi.com/gdelgado)
+- Star the project on [GitHub](https://github.com/supermacro/neverthrow)

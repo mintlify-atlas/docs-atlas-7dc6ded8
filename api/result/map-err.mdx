@@ -1,0 +1,157 @@
+---
+title: Result.mapErr()
+description: Transform the Err value of a Result while leaving Ok untouched
+---
+
+## Overview
+
+Maps a `Result<T, E>` to `Result<T, F>` by applying a function to a contained `Err` value, leaving an `Ok` value untouched. This is useful for transforming error values, such as converting low-level errors to user-friendly messages.
+
+## Signature
+
+```typescript
+class Result<T, E> {
+  mapErr<U>(f: (e: E) => U): Result<T, U>
+}
+```
+
+## Parameters
+
+<ParamField path="f" type="(e: E) => U" required>
+  A function that transforms the Err value from type `E` to type `U`. This function is only called if the Result is Err.
+</ParamField>
+
+## Returns
+
+Returns a new `Result<T, U>` where:
+- If the original Result is `Ok(value)`, returns `Ok(value)` unchanged
+- If the original Result is `Err(error)`, returns `Err(f(error))`
+
+## Examples
+
+### Basic Error Transformation
+
+```typescript
+import { err, ok } from 'neverthrow'
+
+const errVal = err('Round 1, Fight!')
+const mapped = errVal.mapErr((error: string) => 
+  error.replace('1', '2')
+)
+
+mapped.isErr() // true
+mapped._unsafeUnwrapErr() // 'Round 2, Fight!'
+```
+
+### Skips Ok Values
+
+```typescript
+const okVal = ok(12)
+const mapErrorFunc = (error: string) => 'mapped error value'
+
+const notMapped = okVal.mapErr(mapErrorFunc)
+
+notMapped.isOk() // true
+// mapErrorFunc was never called
+```
+
+### Convert Low-Level Errors
+
+```typescript
+import { parseHeaders } from 'imaginary-http-parser'
+// parseHeaders(raw: string): Result<Headers, ParseError>
+
+const rawHeaders = 'nonsensical gibberish'
+const parseResult = parseHeaders(rawHeaders)
+
+const userFriendly = parseResult.mapErr(parseError => ({
+  status: 400,
+  message: 'Invalid headers format',
+  details: parseError.message
+}))
+```
+
+### Error Type Conversion
+
+```typescript
+type DatabaseError = { code: string; details: string }
+type ApiError = { statusCode: number; message: string }
+
+const dbResult: Result<User, DatabaseError> = err({
+  code: 'DB_001',
+  details: 'Connection timeout'
+})
+
+const apiResult: Result<User, ApiError> = dbResult.mapErr(
+  (dbErr) => ({
+    statusCode: 500,
+    message: `Database error: ${dbErr.code}`
+  })
+)
+```
+
+### Chaining Error Transformations
+
+```typescript
+const result = err(404)
+  .mapErr((code) => `Error ${code}`)           // Err('Error 404')
+  .mapErr((msg) => msg.toUpperCase())          // Err('ERROR 404')
+  .mapErr((msg) => new Error(msg))             // Err(Error('ERROR 404'))
+```
+
+### Real-World HTTP Example
+
+```typescript
+enum DatabaseError {
+  NotFound = 'NotFound',
+  Timeout = 'Timeout',
+  Unauthorized = 'Unauthorized'
+}
+
+function queryUser(id: string): Result<User, DatabaseError> {
+  // ... database query
+}
+
+const result = queryUser('123').mapErr((dbError) => {
+  switch (dbError) {
+    case DatabaseError.NotFound:
+      return { status: 404, message: 'User not found' }
+    case DatabaseError.Timeout:
+      return { status: 504, message: 'Database timeout' }
+    case DatabaseError.Unauthorized:
+      return { status: 403, message: 'Access denied' }
+  }
+})
+```
+
+## Implementation Details
+
+From the source code (result.ts:435-437):
+
+```typescript
+mapErr<U>(f: (e: E) => U): Result<T, U> {
+  return err(f(this.error))
+}
+```
+
+For `Ok` (result.ts:328-330):
+
+```typescript
+mapErr<U>(_f: (e: E) => U): Result<T, U> {
+  return ok(this.value)
+}
+```
+
+## Notes
+
+- The mapping function is only executed for `Err` values
+- The success type `T` remains unchanged
+- This method does not catch exceptions thrown by the mapping function
+- Useful for error normalization across different layers of your application
+- Can be combined with `.map()` to transform both success and error paths
+
+## Related
+
+- [Result.map()](/api/result/map) - Transform success values
+- [Result.orElse()](/api/result/or-else) - Recover from errors with a Result
+- [Result.match()](/api/result/match) - Handle both Ok and Err cases

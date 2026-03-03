@@ -1,0 +1,311 @@
+---
+title: "fromAsyncThrowable()"
+description: "Convert async throwing functions into functions that return ResultAsync"
+---
+
+## Overview
+
+The `fromAsyncThrowable` function wraps an async function that might throw exceptions and converts it into a function that returns a `ResultAsync`. This is the async equivalent of `fromThrowable` and is safer than using `fromPromise` with a function call.
+
+`fromAsyncThrowable` is a top-level export that references `ResultAsync.fromThrowable`.
+
+## Type Signature
+
+```typescript
+function fromAsyncThrowable<A extends readonly any[], R, E>(
+  fn: (...args: A) => Promise<R>,
+  errorFn?: (err: unknown) => E
+): (...args: A) => ResultAsync<R, E>
+```
+
+## Parameters
+
+- `fn`: The async function to wrap (returns a `Promise` that might reject)
+- `errorFn`: Optional function to map caught errors to a known type `E`
+  - If not provided, the raw error is used
+  - Maps both thrown errors (synchronous) and rejected promises (asynchronous)
+
+## Return Value
+
+Returns a new function with the same parameters as the original, but returns a `ResultAsync` instead of a `Promise` that might reject.
+
+## Why Use fromAsyncThrowable?
+
+Not all functions that return a `Promise` are truly async. Some can throw synchronously before returning the promise:
+
+```typescript
+// DANGEROUS: Can throw synchronously!
+function insertUser(user: User): Promise<User> {
+  if (!user.id) {
+    throw new TypeError('missing user id') // Synchronous throw!
+  }
+  return db.insert('users', user) // Async operation
+}
+
+// This will throw, NOT return a ResultAsync
+const result = ResultAsync.fromPromise(
+  insertUser(myUser), // Throws before fromPromise can catch
+  () => new Error('Database error')
+)
+```
+
+With `fromAsyncThrowable`:
+
+```typescript
+import { fromAsyncThrowable } from 'neverthrow'
+
+const safeInsertUser = fromAsyncThrowable(
+  insertUser, // Function reference, not call
+  () => new Error('Database error')
+)
+
+// Now it safely catches both sync throws and async rejections
+const result = safeInsertUser(myUser)
+// result is ResultAsync<User, Error>
+```
+
+## Basic Usage
+
+### Wrapping Database Operations
+
+```typescript
+import { fromAsyncThrowable } from 'neverthrow'
+import { db } from './database'
+
+type DbError = { type: 'DatabaseError'; message: string }
+
+const safeInsert = fromAsyncThrowable(
+  db.insert,
+  (error): DbError => ({
+    type: 'DatabaseError',
+    message: error instanceof Error ? error.message : 'Unknown error'
+  })
+)
+
+const result = await safeInsert('users', { name: 'John', email: 'john@example.com' })
+
+if (result.isOk()) {
+  console.log('Inserted:', result.value)
+} else {
+  console.log('Error:', result.error.message)
+}
+```
+
+### Wrapping Fetch Requests
+
+```typescript
+import { fromAsyncThrowable, ResultAsync } from 'neverthrow'
+
+type FetchError = 
+  | { type: 'NetworkError'; message: string }
+  | { type: 'InvalidResponse' }
+
+const safeFetch = fromAsyncThrowable(
+  fetch,
+  (error): FetchError => ({
+    type: 'NetworkError',
+    message: error instanceof Error ? error.message : 'Request failed'
+  })
+)
+
+async function getUser(id: string): ResultAsync<User, FetchError> {
+  return safeFetch(`https://api.example.com/users/${id}`)
+    .andThen(response => {
+      if (!response.ok) {
+        return err({ type: 'InvalidResponse' })
+      }
+      return ResultAsync.fromPromise(
+        response.json(),
+        (): FetchError => ({ type: 'InvalidResponse' })
+      )
+    })
+}
+```
+
+## Real-World Examples
+
+### Email Service
+
+```typescript
+import { fromAsyncThrowable } from 'neverthrow'
+import nodemailer from 'nodemailer'
+
+type EmailError = 
+  | { type: 'InvalidConfig' }
+  | { type: 'SendFailed'; reason: string }
+
+const transporter = nodemailer.createTransport(config)
+
+const safeSendEmail = fromAsyncThrowable(
+  transporter.sendMail.bind(transporter),
+  (error): EmailError => ({
+    type: 'SendFailed',
+    reason: error instanceof Error ? error.message : 'Unknown error'
+  })
+)
+
+async function sendWelcomeEmail(user: User): ResultAsync<void, EmailError> {
+  return safeSendEmail({
+    from: 'noreply@example.com',
+    to: user.email,
+    subject: 'Welcome!',
+    text: `Welcome ${user.name}!`
+  }).map(() => undefined)
+}
+```
+
+### File Upload
+
+```typescript
+import { fromAsyncThrowable } from 'neverthrow'
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+
+type UploadError = { type: 'UploadFailed'; message: string }
+
+const s3Client = new S3Client({ region: 'us-east-1' })
+
+const safeUpload = fromAsyncThrowable(
+  async (key: string, body: Buffer) => {
+    const command = new PutObjectCommand({
+      Bucket: 'my-bucket',
+      Key: key,
+      Body: body
+    })
+    return await s3Client.send(command)
+  },
+  (error): UploadError => ({
+    type: 'UploadFailed',
+    message: error instanceof Error ? error.message : 'Upload failed'
+  })
+)
+
+const result = await safeUpload('uploads/image.png', imageBuffer)
+```
+
+### External API with Retries
+
+```typescript
+import { fromAsyncThrowable, ResultAsync, errAsync } from 'neverthrow'
+
+type ApiError = 'NetworkError' | 'Timeout' | 'RateLimited'
+
+const callApi = fromAsyncThrowable(
+  async (endpoint: string) => {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    
+    try {
+      const response = await fetch(endpoint, { signal: controller.signal })
+      return await response.json()
+    } finally {
+      clearTimeout(timeout)
+    }
+  },
+  (error): ApiError => {
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') return 'Timeout'
+      if (error.message.includes('rate limit')) return 'RateLimited'
+    }
+    return 'NetworkError'
+  }
+)
+
+async function callWithRetry(
+  endpoint: string,
+  maxRetries: number = 3
+): ResultAsync<any, ApiError> {
+  let lastError: ApiError = 'NetworkError'
+  
+  for (let i = 0; i < maxRetries; i++) {
+    const result = await callApi(endpoint)
+    if (result.isOk()) {
+      return result
+    }
+    lastError = result.error
+    
+    // Don't retry on rate limit
+    if (result.error === 'RateLimited') {
+      break
+    }
+    
+    // Wait before retry
+    await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)))
+  }
+  
+  return errAsync(lastError)
+}
+```
+
+## Chaining Operations
+
+```typescript
+import { fromAsyncThrowable, safeTry } from 'neverthrow'
+
+const safeDbQuery = fromAsyncThrowable(
+  db.query,
+  () => 'QueryError' as const
+)
+
+const safeDbInsert = fromAsyncThrowable(
+  db.insert,
+  () => 'InsertError' as const
+)
+
+function processUser(userId: string) {
+  return safeTry(async function*() {
+    const user = yield* safeDbQuery('SELECT * FROM users WHERE id = ?', [userId])
+    const validated = yield* validateUser(user)
+    yield* safeDbInsert('audit_log', { action: 'user_processed', userId })
+    
+    return ok(validated)
+  })
+}
+```
+
+## Comparison with fromPromise
+
+### Using fromPromise (Not Safe for Sync Throws)
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+// NOT SAFE if fn can throw synchronously
+function wrapper(user: User) {
+  return ResultAsync.fromPromise(
+    insertUser(user), // Might throw before fromPromise catches
+    () => 'Error'
+  )
+}
+```
+
+### Using fromAsyncThrowable (Safe)
+
+```typescript
+import { fromAsyncThrowable } from 'neverthrow'
+
+// SAFE: Catches both sync throws and async rejections
+const safeInsertUser = fromAsyncThrowable(
+  insertUser,
+  () => 'Error'
+)
+
+function wrapper(user: User) {
+  return safeInsertUser(user) // Safe!
+}
+```
+
+## Key Points
+
+- Wraps async functions that might throw
+- Catches both synchronous throws and asynchronous rejections
+- Safer than `fromPromise` when wrapping function calls
+- Returns a function that returns `ResultAsync`
+- Error mapper is optional but recommended for type safety
+- Use this instead of `fromPromise` when working with function references
+
+## Related
+
+- [fromThrowable()](/api/utilities/from-throwable) - For synchronous functions
+- [fromPromise()](/api/utilities/from-promise) - For existing Promise instances
+- [fromSafePromise()](/api/utilities/from-safe-promise) - For Promises that never reject
+- [ResultAsync](/api/result-async/overview) - The ResultAsync class

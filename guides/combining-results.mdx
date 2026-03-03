@@ -1,0 +1,526 @@
+---
+title: 'Combining Results'
+description: 'Work with multiple Results using combine and combineWithAllErrors for powerful composition'
+---
+
+## Why Combine Results?
+
+When you have multiple independent operations that all need to succeed, `combine` provides a cleaner alternative to nested checks:
+
+```typescript
+// Without combine - nested and verbose
+const result1 = operation1()
+if (result1.isErr()) return result1
+
+const result2 = operation2()
+if (result2.isErr()) return result2
+
+const result3 = operation3()
+if (result3.isErr()) return result3
+
+return ok([result1.value, result2.value, result3.value])
+
+// With combine - clean and composable
+const combined = Result.combine([
+  operation1(),
+  operation2(),
+  operation3()
+])
+```
+
+## Result.combine Basics
+
+### Combining Homogeneous Results
+
+`combine` takes an array of Results with the same type:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+const results: Result<number, string>[] = [
+  ok(123),
+  ok(456),
+  ok(789)
+]
+
+const combined = Result.combine(results)
+// Type: Result<number[], string>
+
+combined.match(
+  (values) => console.log(values), // [123, 456, 789]
+  (error) => console.error(error)
+)
+```
+
+If any Result is an `Err`, combine short-circuits and returns the first error:
+
+```typescript
+const results: Result<number, string>[] = [
+  ok(123),
+  err('second failed'),
+  ok(789),
+  err('fourth failed') // Never reached
+]
+
+const combined = Result.combine(results)
+
+combined._unsafeUnwrapErr() // "second failed"
+```
+
+### Combining Heterogeneous Results
+
+Combine Results of different types using tuples:
+
+```typescript
+import { Result, ok } from 'neverthrow'
+
+type HeterogeneousList = [
+  Result<string, string>,
+  Result<number, number>,
+  Result<boolean, boolean>
+]
+
+const results: HeterogeneousList = [
+  ok('Hello'),
+  ok(123),
+  ok(true)
+]
+
+const combined = Result.combine(results)
+// Type: Result<[string, number, boolean], string | number | boolean>
+
+combined._unsafeUnwrap() // ['Hello', 123, true]
+```
+
+Arrays are preserved (not flattened):
+
+```typescript
+type ListWithArrays = [
+  Result<string[], boolean>,
+  Result<number[], string>
+]
+
+const results: ListWithArrays = [
+  ok(['hello', 'world']),
+  ok([1, 2, 3])
+]
+
+const combined = Result.combine(results)
+// Type: Result<[string[], number[]], boolean | string>
+
+combined._unsafeUnwrap() // [['hello', 'world'], [1, 2, 3]]
+```
+
+## Real-World Example: Form Validation
+
+Validate multiple form fields independently:
+
+<Steps>
+  <Step title="Define validation functions">
+    ```typescript
+    import { Result, ok, err } from 'neverthrow'
+
+    interface FormData {
+      username: string
+      email: string
+      age: number
+      terms: boolean
+    }
+
+    function validateUsername(username: string): Result<string, string> {
+      if (username.length < 3) {
+        return err('Username must be at least 3 characters')
+      }
+      if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+        return err('Username can only contain letters, numbers, and underscores')
+      }
+      return ok(username)
+    }
+
+    function validateEmail(email: string): Result<string, string> {
+      if (!email.includes('@')) {
+        return err('Email must contain @')
+      }
+      if (!email.includes('.')) {
+        return err('Email must contain a domain')
+      }
+      return ok(email)
+    }
+
+    function validateAge(age: number): Result<number, string> {
+      if (age < 18) {
+        return err('Must be 18 or older')
+      }
+      if (age > 120) {
+        return err('Please enter a valid age')
+      }
+      return ok(age)
+    }
+
+    function validateTerms(terms: boolean): Result<boolean, string> {
+      if (!terms) {
+        return err('Must accept terms and conditions')
+      }
+      return ok(terms)
+    }
+    ```
+  </Step>
+
+  <Step title="Combine validations">
+    ```typescript
+    function validateForm(data: FormData): Result<FormData, string> {
+      const results = Result.combine([
+        validateUsername(data.username),
+        validateEmail(data.email),
+        validateAge(data.age),
+        validateTerms(data.terms)
+      ])
+
+      return results.map(([username, email, age, terms]) => ({
+        username,
+        email,
+        age,
+        terms
+      }))
+    }
+    ```
+  </Step>
+
+  <Step title="Handle the result">
+    ```typescript
+    const formData: FormData = {
+      username: 'user123',
+      email: 'user@example.com',
+      age: 25,
+      terms: true
+    }
+
+    const result = validateForm(formData)
+
+    result.match(
+      (validData) => {
+        console.log('Form is valid:', validData)
+        // Submit to server
+      },
+      (error) => {
+        console.error('Validation failed:', error)
+        // Show error to user
+      }
+    )
+    ```
+  </Step>
+</Steps>
+
+## Getting All Errors with combineWithAllErrors
+
+Instead of short-circuiting at the first error, collect ALL errors:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+const results: Result<number, string>[] = [
+  ok(123),
+  err('second failed'),
+  ok(456),
+  err('fourth failed')
+]
+
+const combined = Result.combineWithAllErrors(results)
+// Type: Result<number[], string[]>
+
+combined._unsafeUnwrapErr() // ['second failed', 'fourth failed']
+```
+
+This is perfect for form validation where you want to show all errors at once:
+
+```typescript
+function validateFormWithAllErrors(
+  data: FormData
+): Result<FormData, string[]> {
+  const results = Result.combineWithAllErrors([
+    validateUsername(data.username),
+    validateEmail(data.email),
+    validateAge(data.age),
+    validateTerms(data.terms)
+  ])
+
+  return results.map(([username, email, age, terms]) => ({
+    username,
+    email,
+    age,
+    terms
+  }))
+}
+
+// Invalid data
+const invalidData: FormData = {
+  username: 'ab',              // Too short
+  email: 'invalid',            // No @ or domain
+  age: 15,                     // Too young
+  terms: false                 // Not accepted
+}
+
+const result = validateFormWithAllErrors(invalidData)
+
+result.match(
+  (validData) => console.log('Valid:', validData),
+  (errors) => {
+    // Display all errors to user
+    console.log('Validation errors:')
+    errors.forEach(error => console.log('-', error))
+    // - Username must be at least 3 characters
+    // - Email must contain @
+    // - Must be 18 or older
+    // - Must accept terms and conditions
+  }
+)
+```
+
+## Combining Async Results
+
+Use `ResultAsync.combine` for asynchronous operations:
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+interface User {
+  id: string
+  name: string
+}
+
+interface Post {
+  id: string
+  title: string
+}
+
+interface Comment {
+  id: string
+  text: string
+}
+
+function fetchUser(id: string): ResultAsync<User, string> {
+  return ResultAsync.fromPromise(
+    fetch(`/api/users/${id}`).then(r => r.json()),
+    (e) => `Failed to fetch user: ${e}`
+  )
+}
+
+function fetchPosts(userId: string): ResultAsync<Post[], string> {
+  return ResultAsync.fromPromise(
+    fetch(`/api/users/${userId}/posts`).then(r => r.json()),
+    (e) => `Failed to fetch posts: ${e}`
+  )
+}
+
+function fetchComments(userId: string): ResultAsync<Comment[], string> {
+  return ResultAsync.fromPromise(
+    fetch(`/api/users/${userId}/comments`).then(r => r.json()),
+    (e) => `Failed to fetch comments: ${e}`
+  )
+}
+
+// Fetch all data in parallel
+async function getUserData(userId: string) {
+  const combined = await ResultAsync.combine([
+    fetchUser(userId),
+    fetchPosts(userId),
+    fetchComments(userId)
+  ])
+
+  return combined.match(
+    ([user, posts, comments]) => ({
+      user,
+      posts,
+      comments
+    }),
+    (error) => null // Handle error
+  )
+}
+```
+
+### Collecting All Async Errors
+
+```typescript
+async function getUserDataWithAllErrors(userId: string) {
+  const combined = await ResultAsync.combineWithAllErrors([
+    fetchUser(userId),
+    fetchPosts(userId),
+    fetchComments(userId)
+  ])
+
+  return combined.match(
+    ([user, posts, comments]) => ({
+      user,
+      posts,
+      comments
+    }),
+    (errors) => {
+      console.error('Failed to load user data:')
+      errors.forEach(err => console.error('-', err))
+      return null
+    }
+  )
+}
+```
+
+## Pattern: Dependent vs Independent Operations
+
+<Tabs>
+  <Tab title="Independent (use combine)">
+    When operations don't depend on each other, use `combine`:
+
+    ```typescript
+    // All operations can run independently
+    const result = await ResultAsync.combine([
+      fetchUserProfile('123'),
+      fetchUserSettings('123'),
+      fetchUserPreferences('123')
+    ])
+
+    result.map(([profile, settings, preferences]) => ({
+      profile,
+      settings,
+      preferences
+    }))
+    ```
+  </Tab>
+
+  <Tab title="Dependent (use andThen)">
+    When each step depends on the previous one, use `andThen`:
+
+    ```typescript
+    // Each step depends on the previous result
+    const result = await fetchUser('123')
+      .andThen(user => fetchPosts(user.id))
+      .andThen(posts => fetchComments(posts[0].id))
+    ```
+  </Tab>
+</Tabs>
+
+## Advanced: Partial Success Handling
+
+Sometimes you want to proceed even if some operations fail:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+function tryParseInt(value: string): Result<number, string> {
+  const parsed = parseInt(value, 10)
+  if (isNaN(parsed)) {
+    return err(`Invalid number: ${value}`)
+  }
+  return ok(parsed)
+}
+
+const inputs = ['42', 'invalid', '123', 'bad']
+
+// Get all results (mix of Ok and Err)
+const results = inputs.map(tryParseInt)
+
+// Extract successful values
+const successful = results
+  .filter(r => r.isOk())
+  .map(r => r._unsafeUnwrap())
+
+console.log(successful) // [42, 123]
+
+// Extract errors
+const errors = results
+  .filter(r => r.isErr())
+  .map(r => r._unsafeUnwrapErr())
+
+console.log(errors) // ['Invalid number: invalid', 'Invalid number: bad']
+```
+
+## Real-World Example: Configuration Loading
+
+Load and validate configuration from multiple sources:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+interface Config {
+  apiKey: string
+  apiUrl: string
+  timeout: number
+  retries: number
+}
+
+function loadApiKey(): Result<string, string> {
+  const key = process.env.API_KEY
+  if (!key) return err('API_KEY not set')
+  if (key.length < 32) return err('API_KEY too short')
+  return ok(key)
+}
+
+function loadApiUrl(): Result<string, string> {
+  const url = process.env.API_URL
+  if (!url) return err('API_URL not set')
+  try {
+    new URL(url)
+    return ok(url)
+  } catch {
+    return err('API_URL is not a valid URL')
+  }
+}
+
+function loadTimeout(): Result<number, string> {
+  const timeout = process.env.TIMEOUT || '5000'
+  const parsed = parseInt(timeout, 10)
+  if (isNaN(parsed) || parsed < 0) {
+    return err('TIMEOUT must be a positive number')
+  }
+  return ok(parsed)
+}
+
+function loadRetries(): Result<number, string> {
+  const retries = process.env.RETRIES || '3'
+  const parsed = parseInt(retries, 10)
+  if (isNaN(parsed) || parsed < 0 || parsed > 10) {
+    return err('RETRIES must be between 0 and 10')
+  }
+  return ok(parsed)
+}
+
+// Load all config with all errors
+function loadConfig(): Result<Config, string[]> {
+  return Result.combineWithAllErrors([
+    loadApiKey(),
+    loadApiUrl(),
+    loadTimeout(),
+    loadRetries()
+  ]).map(([apiKey, apiUrl, timeout, retries]) => ({
+    apiKey,
+    apiUrl,
+    timeout,
+    retries
+  }))
+}
+
+// Usage
+const config = loadConfig()
+
+config.match(
+  (cfg) => {
+    console.log('Configuration loaded successfully')
+    console.log('API URL:', cfg.apiUrl)
+    console.log('Timeout:', cfg.timeout)
+  },
+  (errors) => {
+    console.error('Configuration errors:')
+    errors.forEach(error => console.error('-', error))
+    process.exit(1)
+  }
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Error Recovery" icon="life-ring" href="/guides/error-recovery">
+    Learn advanced error handling with orElse and match
+  </Card>
+  <Card title="Async Operations" icon="bolt" href="/guides/async-operations">
+    Master asynchronous operations with ResultAsync
+  </Card>
+</CardGroup>

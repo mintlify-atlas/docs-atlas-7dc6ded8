@@ -1,0 +1,270 @@
+---
+title: "fromThrowable()"
+description: "Convert throwing functions into functions that return Results"
+---
+
+## Overview
+
+The `fromThrowable` function wraps a potentially throwing function in a try-catch block and converts it into a function that returns a `Result`. This is essential when working with third-party libraries or native JavaScript functions that throw exceptions.
+
+`fromThrowable` is a top-level export that references `Result.fromThrowable`.
+
+## Type Signature
+
+```typescript
+function fromThrowable<Fn extends (...args: readonly any[]) => any, E>(
+  fn: Fn,
+  errorFn?: (e: unknown) => E
+): (...args: Parameters<Fn>) => Result<ReturnType<Fn>, E>
+```
+
+## Parameters
+
+- `fn`: The function to wrap (the function that might throw)
+- `errorFn`: Optional function to map the caught error to a known type `E`
+  - If not provided, the raw error is used as the `Err` value
+  - Recommended to always provide this to ensure type safety
+
+## Return Value
+
+Returns a new function with the same parameters as the original, but returns a `Result` instead of throwing.
+
+## Basic Usage
+
+### Wrapping JSON.parse
+
+```typescript
+import { fromThrowable } from 'neverthrow'
+
+type ParseError = { message: string }
+
+const safeJsonParse = fromThrowable(
+  JSON.parse,
+  (): ParseError => ({ message: 'Failed to parse JSON' })
+)
+
+// Now it's safe to use
+const result = safeJsonParse('{"name": "John"}')
+
+if (result.isOk()) {
+  console.log(result.value) // { name: "John" }
+} else {
+  console.log(result.error) // { message: "Failed to parse JSON" }
+}
+
+// Invalid JSON returns Err instead of throwing
+const invalid = safeJsonParse('{')
+console.log(invalid.isErr()) // true
+```
+
+## Preserving Error Information
+
+```typescript
+import { fromThrowable } from 'neverthrow'
+
+type ParseError = {
+  type: 'ParseError'
+  originalMessage: string
+}
+
+const safeJsonParse = fromThrowable(
+  JSON.parse,
+  (error): ParseError => ({
+    type: 'ParseError',
+    originalMessage: error instanceof Error ? error.message : 'Unknown error'
+  })
+)
+
+const result = safeJsonParse('invalid json')
+
+if (result.isErr()) {
+  console.log(result.error.type) // "ParseError"
+  console.log(result.error.originalMessage) // The actual parse error message
+}
+```
+
+## Without Error Mapper (Not Recommended)
+
+```typescript
+import { fromThrowable } from 'neverthrow'
+
+// Error type will be 'unknown'
+const safeJsonParse = fromThrowable(JSON.parse)
+
+const result = safeJsonParse('{}')
+// result type: Result<any, unknown>
+```
+
+<Warning>
+Without an error mapper function, the error type will be `unknown`, which reduces type safety. Always provide an error mapper when possible.
+</Warning>
+
+## Real-World Examples
+
+### Wrapping File System Operations
+
+```typescript
+import { fromThrowable } from 'neverthrow'
+import { readFileSync } from 'fs'
+
+type FileError = 
+  | { type: 'NotFound'; path: string }
+  | { type: 'PermissionDenied'; path: string }
+  | { type: 'Unknown'; message: string }
+
+const safeReadFile = fromThrowable(
+  readFileSync,
+  (error): FileError => {
+    if (error instanceof Error) {
+      if (error.message.includes('ENOENT')) {
+        return { type: 'NotFound', path: error.message }
+      }
+      if (error.message.includes('EACCES')) {
+        return { type: 'PermissionDenied', path: error.message }
+      }
+    }
+    return { 
+      type: 'Unknown', 
+      message: error instanceof Error ? error.message : 'Unknown error'
+    }
+  }
+)
+
+const result = safeReadFile('config.json', 'utf-8')
+
+result.match(
+  (content) => console.log('File content:', content),
+  (error) => {
+    switch (error.type) {
+      case 'NotFound':
+        console.log('File not found:', error.path)
+        break
+      case 'PermissionDenied':
+        console.log('Permission denied:', error.path)
+        break
+      case 'Unknown':
+        console.log('Unknown error:', error.message)
+        break
+    }
+  }
+)
+```
+
+### Wrapping URL Parsing
+
+```typescript
+import { fromThrowable } from 'neverthrow'
+
+type UrlError = 'InvalidUrl'
+
+const safeParseUrl = fromThrowable(
+  (urlString: string) => new URL(urlString),
+  (): UrlError => 'InvalidUrl'
+)
+
+const result = safeParseUrl('https://example.com')
+// result type: Result<URL, 'InvalidUrl'>
+
+if (result.isOk()) {
+  console.log('Protocol:', result.value.protocol)
+  console.log('Host:', result.value.host)
+}
+```
+
+### Wrapping parseInt with Validation
+
+```typescript
+import { fromThrowable, Result, err } from 'neverthrow'
+
+type ParseIntError = 'NotANumber' | 'OutOfRange'
+
+function parseIntSafe(value: string): Result<number, ParseIntError> {
+  const num = parseInt(value, 10)
+  
+  if (isNaN(num)) {
+    return err('NotANumber')
+  }
+  
+  if (num < 0 || num > 100) {
+    return err('OutOfRange')
+  }
+  
+  return ok(num)
+}
+
+// Use with safeTry for chaining
+import { safeTry } from 'neverthrow'
+
+function processInput(input: string): Result<number, ParseIntError> {
+  return safeTry(function*() {
+    const num = yield* parseIntSafe(input)
+    return ok(num * 2)
+  })
+}
+```
+
+## Chaining with Other Methods
+
+```typescript
+import { fromThrowable } from 'neverthrow'
+
+const safeJsonParse = fromThrowable(
+  JSON.parse,
+  () => 'ParseError' as const
+)
+
+const result = safeJsonParse('{"count": "5"}')
+  .map(obj => obj.count)
+  .andThen(count => {
+    const num = parseInt(count)
+    return isNaN(num) ? err('NotANumber' as const) : ok(num)
+  })
+  .map(num => num * 2)
+
+// result type: Result<number, 'ParseError' | 'NotANumber'>
+```
+
+## Comparison with Try-Catch
+
+### Traditional Try-Catch
+
+```typescript
+function parseConfig(json: string): Config {
+  try {
+    return JSON.parse(json)
+  } catch (e) {
+    // Caller might forget to handle this
+    throw new Error('Failed to parse config')
+  }
+}
+
+// Easy to forget error handling
+const config = parseConfig(jsonString) // Might throw!
+```
+
+### With fromThrowable
+
+```typescript
+const safeParseConfig = fromThrowable(
+  JSON.parse,
+  () => 'ParseError' as const
+)
+
+// Type system enforces error handling
+const result = safeParseConfig(jsonString)
+// Must handle both Ok and Err cases
+```
+
+## Key Points
+
+- Wraps throwing functions in try-catch
+- Returns a new function that returns `Result` instead of throwing
+- The error mapper function is optional but strongly recommended
+- Preserves function parameters and return type
+- Makes error handling explicit and type-safe
+
+## Related
+
+- [fromAsyncThrowable()](/api/utilities/from-async-throwable) - For async functions
+- [fromPromise()](/api/utilities/from-promise) - For Promises
+- [safeTry()](/api/utilities/safe-try) - For unwrapping Results with generator syntax

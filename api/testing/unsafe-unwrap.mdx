@@ -1,0 +1,351 @@
+---
+title: "_unsafeUnwrap() & _unsafeUnwrapErr()"
+description: "Unsafe methods for extracting values in test environments"
+---
+
+## Overview
+
+The `_unsafeUnwrap()` and `_unsafeUnwrapErr()` methods are designed **exclusively for testing**. They extract the inner value from a `Result` without proper error handling, throwing an error if the wrong variant is accessed.
+
+<Warning>
+**Test Environments Only**
+
+These methods should **never** be used in production code. The underscore prefix is a convention indicating they are unsafe. In production, always use safe methods like `match()`, `unwrapOr()`, or proper error handling.
+</Warning>
+
+## Type Signatures
+
+```typescript
+class Result<T, E> {
+  _unsafeUnwrap(config?: ErrorConfig): T
+  _unsafeUnwrapErr(config?: ErrorConfig): E
+}
+```
+
+### ErrorConfig
+
+```typescript
+type ErrorConfig = {
+  withStackTrace?: boolean
+}
+```
+
+## _unsafeUnwrap()
+
+Extracts the value from an `Ok` variant. Throws if called on an `Err`.
+
+### Behavior
+
+- If `Result` is `Ok`: Returns the inner value `T`
+- If `Result` is `Err`: Throws a custom error object
+
+### Basic Usage
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const okResult = ok(42)
+console.log(okResult._unsafeUnwrap()) // 42
+
+const errResult = err('Something went wrong')
+console.log(errResult._unsafeUnwrap()) // Throws!
+```
+
+### In Tests
+
+```typescript
+import { expect, test } from 'vitest'
+import { processUser } from './user-service'
+
+test('processUser returns valid user', () => {
+  const result = processUser({ name: 'John', email: 'john@example.com' })
+  
+  // Extract value for assertion
+  const user = result._unsafeUnwrap()
+  
+  expect(user.name).toBe('John')
+  expect(user.email).toBe('john@example.com')
+})
+```
+
+## _unsafeUnwrapErr()
+
+Extracts the error from an `Err` variant. Throws if called on an `Ok`.
+
+### Behavior
+
+- If `Result` is `Err`: Returns the inner error `E`
+- If `Result` is `Ok`: Throws a custom error object
+
+### Basic Usage
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const errResult = err('Something went wrong')
+console.log(errResult._unsafeUnwrapErr()) // 'Something went wrong'
+
+const okResult = ok(42)
+console.log(okResult._unsafeUnwrapErr()) // Throws!
+```
+
+### In Tests
+
+```typescript
+import { expect, test } from 'vitest'
+import { validateEmail } from './validators'
+
+test('validateEmail returns error for invalid email', () => {
+  const result = validateEmail('not-an-email')
+  
+  // Extract error for assertion
+  const error = result._unsafeUnwrapErr()
+  
+  expect(error.type).toBe('InvalidEmail')
+  expect(error.message).toContain('invalid format')
+})
+```
+
+## Stack Traces
+
+By default, thrown errors don't include stack traces. This makes Jest error messages cleaner and easier to read.
+
+### Enable Stack Traces
+
+```typescript
+const result = err('Error')
+
+// Without stack trace (default)
+try {
+  result._unsafeUnwrap()
+} catch (e) {
+  console.log(e.stack) // undefined
+}
+
+// With stack trace
+try {
+  result._unsafeUnwrap({ withStackTrace: true })
+} catch (e) {
+  console.log(e.stack) // Full stack trace
+}
+```
+
+## Testing Patterns
+
+### Testing Success Cases
+
+```typescript
+import { expect, test } from 'vitest'
+import { calculateTotal } from './calculator'
+
+test('calculates total correctly', () => {
+  const result = calculateTotal([10, 20, 30])
+  
+  expect(result._unsafeUnwrap()).toBe(60)
+})
+
+test('returns zero for empty array', () => {
+  const result = calculateTotal([])
+  
+  expect(result._unsafeUnwrap()).toBe(0)
+})
+```
+
+### Testing Error Cases
+
+```typescript
+import { expect, test } from 'vitest'
+import { divide } from './calculator'
+
+test('returns error when dividing by zero', () => {
+  const result = divide(10, 0)
+  
+  expect(result._unsafeUnwrapErr()).toBe('DivisionByZero')
+})
+
+test('returns detailed error for invalid input', () => {
+  const result = processInput('invalid')
+  
+  const error = result._unsafeUnwrapErr()
+  expect(error.code).toBe('INVALID_INPUT')
+  expect(error.details).toContain('expected number')
+})
+```
+
+### Testing with safeTry
+
+```typescript
+import { expect, test } from 'vitest'
+import { safeTry, ok, err } from 'neverthrow'
+
+test('safeTry returns first error', () => {
+  const result = safeTry(function*() {
+    const a = yield* ok(1)
+    const b = yield* err('SecondError')
+    const c = yield* ok(3)
+    return ok(a + b + c)
+  })
+  
+  expect(result._unsafeUnwrapErr()).toBe('SecondError')
+})
+
+test('safeTry returns ok when all succeed', () => {
+  const result = safeTry(function*() {
+    const a = yield* ok(1)
+    const b = yield* ok(2)
+    return ok(a + b)
+  })
+  
+  expect(result._unsafeUnwrap()).toBe(3)
+})
+```
+
+## Alternative: Compare Results Directly
+
+You don't always need to unwrap Results in tests. `Result` instances are comparable:
+
+```typescript
+import { expect, test } from 'vitest'
+import { ok, err } from 'neverthrow'
+import { processUser } from './user-service'
+
+test('processUser returns expected result', () => {
+  const result = processUser({ name: 'John' })
+  
+  // Compare Result directly (no unwrapping needed)
+  expect(result).toEqual(ok({ id: '123', name: 'John' }))
+})
+
+test('processUser returns error for invalid input', () => {
+  const result = processUser({ name: '' })
+  
+  // Compare Error directly
+  expect(result).toEqual(err('InvalidName'))
+})
+```
+
+## With Jest/Vitest Matchers
+
+```typescript
+import { expect, test } from 'vitest'
+import { processData } from './processor'
+
+test('processes data successfully', () => {
+  const result = processData('input')
+  
+  // Use custom matchers if available
+  expect(result.isOk()).toBe(true)
+  
+  // Or unwrap for detailed assertions
+  const data = result._unsafeUnwrap()
+  expect(data).toHaveProperty('processed', true)
+  expect(data.value).toBeGreaterThan(0)
+})
+```
+
+## Advanced Testing Patterns
+
+### Testing Complex Error Types
+
+```typescript
+import { expect, test } from 'vitest'
+
+type ValidationError = 
+  | { type: 'TooShort'; minLength: number }
+  | { type: 'TooLong'; maxLength: number }
+  | { type: 'InvalidFormat'; pattern: string }
+
+test('validatePassword returns correct error type', () => {
+  const result = validatePassword('abc')
+  const error = result._unsafeUnwrapErr()
+  
+  expect(error.type).toBe('TooShort')
+  if (error.type === 'TooShort') {
+    expect(error.minLength).toBe(8)
+  }
+})
+```
+
+### Testing Async Results
+
+```typescript
+import { expect, test } from 'vitest'
+import { fetchUser } from './api'
+
+test('fetchUser returns user data', async () => {
+  const resultAsync = fetchUser('123')
+  const result = await resultAsync
+  
+  const user = result._unsafeUnwrap()
+  expect(user.id).toBe('123')
+  expect(user.name).toBeDefined()
+})
+
+test('fetchUser handles not found', async () => {
+  const resultAsync = fetchUser('nonexistent')
+  const result = await resultAsync
+  
+  const error = result._unsafeUnwrapErr()
+  expect(error).toBe('NotFound')
+})
+```
+
+### Snapshot Testing
+
+```typescript
+import { expect, test } from 'vitest'
+import { generateReport } from './reports'
+
+test('generateReport matches snapshot', () => {
+  const result = generateReport({ startDate: '2024-01-01', endDate: '2024-01-31' })
+  
+  const report = result._unsafeUnwrap()
+  expect(report).toMatchSnapshot()
+})
+```
+
+## ESLint Plugin
+
+Use [`eslint-plugin-neverthrow`](https://github.com/mdbetancourt/eslint-plugin-neverthrow) to enforce proper Result handling:
+
+```json
+{
+  "plugins": ["neverthrow"],
+  "rules": {
+    "neverthrow/must-use-result": "error"
+  }
+}
+```
+
+This ensures you either:
+- Call `.match()`
+- Call `.unwrapOr()`
+- Call `._unsafeUnwrap()` (only in tests)
+
+## Why the Underscore Prefix?
+
+The underscore (`_`) prefix is a naming convention that signals:
+- This method is unsafe
+- It should only be used in specific contexts (tests)
+- It breaks the normal error handling guarantees
+- Production code should avoid it
+
+This convention is borrowed from languages like Rust, where unsafe operations are clearly marked.
+
+## Key Points
+
+- **Only use in tests** - Never in production code
+- `_unsafeUnwrap()` extracts `Ok` values, throws on `Err`
+- `_unsafeUnwrapErr()` extracts `Err` values, throws on `Ok`
+- Stack traces are disabled by default for cleaner test output
+- Enable stack traces with `{ withStackTrace: true }`
+- Consider comparing Results directly instead of unwrapping
+- Use ESLint plugin to enforce safe usage
+- The underscore prefix indicates unsafe operation
+
+## Related
+
+- [Result Methods](/api/result/methods) - Safe methods for production code
+- [match()](/api/result/methods#match) - Safe way to extract values
+- [unwrapOr()](/api/result/methods#unwrapor) - Safe unwrapping with defaults
+- [Testing Guide](/guides/testing) - Best practices for testing with Results

@@ -1,0 +1,182 @@
+---
+title: ResultAsync.fromPromise
+description: Create ResultAsync from Promise with error handling
+---
+
+## Overview
+
+The `fromPromise` and `fromSafePromise` static methods convert Promises into `ResultAsync` instances.
+
+## Signatures
+
+### fromPromise
+
+```typescript
+static fromPromise<T, E>(
+  promise: PromiseLike<T>,
+  errorFn: (e: unknown) => E
+): ResultAsync<T, E>
+```
+
+<ParamField path="promise" type="PromiseLike<T>" required>
+  A Promise that may resolve or reject
+</ParamField>
+
+<ParamField path="errorFn" type="(e: unknown) => E" required>
+  Function to map the rejection reason to a known error type
+</ParamField>
+
+### fromSafePromise
+
+```typescript
+static fromSafePromise<T, E = never>(
+  promise: PromiseLike<T>
+): ResultAsync<T, E>
+```
+
+<ParamField path="promise" type="PromiseLike<T>" required>
+  A Promise that will never reject
+</ParamField>
+
+## Usage
+
+### Basic fromPromise usage
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+const result = ResultAsync.fromPromise(
+  fetch('/api/user/123').then(r => r.json()),
+  (e) => new Error(`Fetch failed: ${e}`)
+)
+
+// result is ResultAsync<User, Error>
+```
+
+### Type-safe error mapping
+
+```typescript
+type ApiError = 
+  | { type: 'NetworkError', message: string }
+  | { type: 'ParseError', json: string }
+
+const fetchUser = (id: number) => {
+  return ResultAsync.fromPromise(
+    fetch(`/api/users/${id}`).then(r => r.json()),
+    (error): ApiError => {
+      if (error instanceof TypeError) {
+        return { type: 'NetworkError', message: error.message }
+      }
+      return { type: 'ParseError', json: String(error) }
+    }
+  )
+}
+```
+
+### Chaining after fromPromise
+
+```typescript
+const result = await ResultAsync.fromPromise(
+  fs.promises.readFile('data.json', 'utf-8'),
+  (e) => `Failed to read file: ${e}`
+)
+  .andThen(content => {
+    try {
+      return ok(JSON.parse(content))
+    } catch (e) {
+      return err('Invalid JSON')
+    }
+  })
+  .map(data => data.users)
+```
+
+### fromSafePromise usage
+
+```typescript
+// Promise that never rejects
+const delay = (ms: number) => 
+  new Promise(resolve => setTimeout(resolve, ms))
+
+const result = await ResultAsync.fromSafePromise(delay(1000))
+  .map(() => 'Done!')
+
+// result is Ok('Done!')
+```
+
+### Rate limiting with safe promises
+
+```typescript
+const rateLimitedFetch = (url: string) => {
+  const delayPromise = new Promise(resolve => 
+    setTimeout(resolve, 100)
+  )
+  
+  return ResultAsync.fromSafePromise(delayPromise)
+    .andThen(() => 
+      ResultAsync.fromPromise(
+        fetch(url),
+        (e) => new Error('Fetch failed')
+      )
+    )
+}
+```
+
+## When to use each
+
+### Use fromPromise when:
+
+- Working with third-party APIs that may reject
+- Fetching from network (fetch, axios)
+- File I/O operations
+- Database queries
+- Any Promise that might reject
+
+### Use fromSafePromise when:
+
+- Creating delays with setTimeout
+- Wrapping synchronous operations in Promises
+- Working with Promise.resolve()
+- You **guarantee** the Promise never rejects
+
+<Warning>
+  Only use `fromSafePromise` when you are absolutely certain the Promise will never reject. If it does reject, it will crash your program!
+</Warning>
+
+## Comparison
+
+```typescript
+// fromPromise - safe, requires error handler
+const safe = ResultAsync.fromPromise(
+  mayReject(),
+  (e) => `Error: ${e}`
+)
+// Type: ResultAsync<Data, string>
+
+// fromSafePromise - no error handler needed
+const unsafe = ResultAsync.fromSafePromise(
+  neverRejects()
+)
+// Type: ResultAsync<Data, never>
+```
+
+## Top-level exports
+
+These methods are also available as standalone functions:
+
+```typescript
+import { fromPromise, fromSafePromise } from 'neverthrow'
+
+const result1 = fromPromise(fetch('/api'), (e) => String(e))
+const result2 = fromSafePromise(Promise.resolve(42))
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="from-throwable" icon="shield" href="./from-throwable">
+    Wrap functions that might throw
+  </Card>
+  <Card title="Async Operations Guide" icon="book" href="/guides/async-operations">
+    Working with async operations
+  </Card>
+</CardGroup>

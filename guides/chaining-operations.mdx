@@ -1,0 +1,366 @@
+---
+title: 'Chaining Operations'
+description: 'Compose complex operations using map, mapErr, and andThen for elegant error handling'
+---
+
+## Why Chain Operations?
+
+Chaining allows you to compose multiple fallible operations without nested conditionals or try-catch blocks:
+
+```typescript
+// Without chaining - nested and hard to read
+const result1 = parseInput(input)
+if (result1.isOk()) {
+  const result2 = validate(result1.value)
+  if (result2.isOk()) {
+    const result3 = save(result2.value)
+    if (result3.isOk()) {
+      return result3.value
+    }
+  }
+}
+
+// With chaining - linear and readable
+const result = parseInput(input)
+  .andThen(validate)
+  .andThen(save)
+```
+
+## Using andThen for Sequential Operations
+
+### Basic andThen Pattern
+
+`andThen()` is used when your callback returns another `Result`:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+const square = (n: number): Result<number, string> => ok(n ** 2)
+
+const result = ok(2)
+  .andThen(square)  // Ok(4)
+  .andThen(square)  // Ok(16)
+
+result._unsafeUnwrap() // 16
+```
+
+If any step fails, the chain short-circuits:
+
+```typescript
+const divide = (n: number): Result<number, string> => {
+  if (n === 0) return err('Division by zero')
+  return ok(10 / n)
+}
+
+const result = ok(2)
+  .andThen(square)   // Ok(4)
+  .andThen(divide)   // Err('Division by zero')
+  .andThen(square)   // Skipped
+
+result._unsafeUnwrapErr() // 'Division by zero'
+```
+
+### Real-World Example: User Registration
+
+<Steps>
+  <Step title="Define validation functions">
+    Each function returns a `Result` to handle validation errors:
+
+    ```typescript
+    import { Result, ok, err } from 'neverthrow'
+
+    interface RawUser {
+      email: string
+      password: string
+    }
+
+    interface ValidUser extends RawUser {
+      id: string
+    }
+
+    function validateEmail(user: RawUser): Result<RawUser, string> {
+      if (!user.email.includes('@')) {
+        return err('Invalid email format')
+      }
+      return ok(user)
+    }
+
+    function validatePassword(user: RawUser): Result<RawUser, string> {
+      if (user.password.length < 8) {
+        return err('Password must be at least 8 characters')
+      }
+      return ok(user)
+    }
+
+    function checkEmailUnique(user: RawUser): Result<RawUser, string> {
+      // Simulate database check
+      const existingUsers = ['admin@example.com']
+      if (existingUsers.includes(user.email)) {
+        return err('Email already registered')
+      }
+      return ok(user)
+    }
+
+    function createUser(user: RawUser): Result<ValidUser, string> {
+      // Simulate user creation
+      return ok({
+        ...user,
+        id: Math.random().toString(36)
+      })
+    }
+    ```
+  </Step>
+
+  <Step title="Chain the operations">
+    Compose all validation and creation steps:
+
+    ```typescript
+    function registerUser(data: RawUser): Result<ValidUser, string> {
+      return ok(data)
+        .andThen(validateEmail)
+        .andThen(validatePassword)
+        .andThen(checkEmailUnique)
+        .andThen(createUser)
+    }
+
+    // Usage
+    const result = registerUser({
+      email: 'user@example.com',
+      password: 'secure123'
+    })
+
+    result.match(
+      (user) => console.log('User created:', user.id),
+      (error) => console.error('Registration failed:', error)
+    )
+    ```
+  </Step>
+
+  <Step title="Handle the result">
+    The chain stops at the first error, providing clear feedback:
+
+    ```typescript
+    // Valid input - all steps succeed
+    registerUser({
+      email: 'new@example.com',
+      password: 'securepassword'
+    }) // Ok(ValidUser)
+
+    // Invalid email - stops at first validation
+    registerUser({
+      email: 'invalid',
+      password: 'securepassword'
+    }) // Err('Invalid email format')
+
+    // Weak password - stops at second validation
+    registerUser({
+      email: 'user@example.com',
+      password: 'weak'
+    }) // Err('Password must be at least 8 characters')
+    ```
+  </Step>
+</Steps>
+
+## Flattening Nested Results
+
+`andThen` automatically flattens nested Results:
+
+```typescript
+// Without andThen - nested Result
+const nested = ok(ok(1234))
+// Type: Ok<Ok<number, E>, E>
+
+// With andThen - flattened
+const flattened = nested.andThen(innerResult => innerResult)
+// Type: Ok<number, E>
+flattened._unsafeUnwrap() // 1234
+```
+
+## map vs andThen
+
+Understand when to use each method:
+
+<Tabs>
+  <Tab title="Use map">
+    When your callback returns a regular value (not a Result):
+
+    ```typescript
+    const result = ok(5)
+      .map(n => n * 2)        // Returns number
+      .map(n => n.toString()) // Returns string
+
+    // Type: Result<string, E>
+    ```
+  </Tab>
+  
+  <Tab title="Use andThen">
+    When your callback returns a Result (operation can fail):
+
+    ```typescript
+    const safeDivide = (n: number): Result<number, string> => {
+      if (n === 0) return err('Cannot divide by zero')
+      return ok(10 / n)
+    }
+
+    const result = ok(5)
+      .andThen(safeDivide)  // Returns Result<number, string>
+      .map(n => Math.round(n))
+
+    // Type: Result<number, string>
+    ```
+  </Tab>
+</Tabs>
+
+## Error Context with mapErr
+
+Add context to errors as they flow through the chain:
+
+```typescript
+function parseJSON(input: string): Result<unknown, string> {
+  try {
+    return ok(JSON.parse(input))
+  } catch {
+    return err('JSON_PARSE_ERROR')
+  }
+}
+
+interface Config {
+  apiKey: string
+  timeout: number
+}
+
+function validateConfig(data: unknown): Result<Config, string> {
+  if (typeof data !== 'object' || data === null) {
+    return err('CONFIG_INVALID_TYPE')
+  }
+  const obj = data as any
+  if (!obj.apiKey || !obj.timeout) {
+    return err('CONFIG_MISSING_FIELDS')
+  }
+  return ok(obj as Config)
+}
+
+// Chain with error context
+function loadConfig(jsonString: string): Result<Config, string> {
+  return parseJSON(jsonString)
+    .mapErr(e => `Failed to parse JSON: ${e}`)
+    .andThen(validateConfig)
+    .mapErr(e => `Configuration error: ${e}`)
+}
+
+const result = loadConfig('invalid json')
+result._unsafeUnwrapErr() // "Failed to parse JSON: JSON_PARSE_ERROR"
+```
+
+## Distinct Error Types
+
+Starting from v4.1.0, `andThen` supports returning different error types:
+
+```typescript
+enum NetworkError {
+  Timeout = 'TIMEOUT',
+  NotFound = 'NOT_FOUND'
+}
+
+enum DatabaseError {
+  ConnectionFailed = 'CONNECTION_FAILED',
+  QueryFailed = 'QUERY_FAILED'
+}
+
+function fetchUser(id: string): Result<string, NetworkError> {
+  // Simulate network request
+  if (id === 'invalid') {
+    return err(NetworkError.NotFound)
+  }
+  return ok(id)
+}
+
+function saveToCache(userId: string): Result<void, DatabaseError> {
+  // Simulate database operation
+  return ok(undefined)
+}
+
+// Error types are combined automatically
+const result = fetchUser('123')
+  .andThen(saveToCache)
+
+// Type: Result<void, NetworkError | DatabaseError>
+```
+
+## Advanced Pattern: Railway-Oriented Programming
+
+Build complex pipelines that handle success and failure tracks:
+
+```typescript
+interface Order {
+  id: string
+  items: string[]
+  total: number
+}
+
+interface ProcessedOrder extends Order {
+  confirmed: boolean
+  trackingNumber?: string
+}
+
+function validateOrder(order: Order): Result<Order, string> {
+  if (order.items.length === 0) {
+    return err('Order must contain at least one item')
+  }
+  if (order.total <= 0) {
+    return err('Order total must be positive')
+  }
+  return ok(order)
+}
+
+function applyDiscount(order: Order): Result<Order, string> {
+  // Apply 10% discount for orders over $100
+  const discounted = order.total > 100 
+    ? { ...order, total: order.total * 0.9 }
+    : order
+  return ok(discounted)
+}
+
+function confirmOrder(order: Order): Result<ProcessedOrder, string> {
+  return ok({
+    ...order,
+    confirmed: true,
+    trackingNumber: 'TRK-' + Math.random().toString(36).slice(2, 9)
+  })
+}
+
+function processOrder(order: Order): Result<ProcessedOrder, string> {
+  return ok(order)
+    .andThen(validateOrder)
+    .andThen(applyDiscount)
+    .map(order => ({ ...order, total: Math.round(order.total * 100) / 100 }))
+    .andThen(confirmOrder)
+}
+
+// Usage
+const order: Order = {
+  id: 'ORD-001',
+  items: ['item1', 'item2'],
+  total: 150
+}
+
+processOrder(order).match(
+  (processed) => {
+    console.log('Order confirmed!')
+    console.log('Final total:', processed.total) // 135 (with discount)
+    console.log('Tracking:', processed.trackingNumber)
+  },
+  (error) => console.error('Order failed:', error)
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Async Operations" icon="bolt" href="/guides/async-operations">
+    Learn how to chain asynchronous operations with ResultAsync
+  </Card>
+  <Card title="Combining Results" icon="layer-group" href="/guides/combining-results">
+    Work with multiple Results at once using combine
+  </Card>
+</CardGroup>

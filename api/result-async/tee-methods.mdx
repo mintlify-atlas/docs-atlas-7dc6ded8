@@ -1,0 +1,135 @@
+---
+title: ResultAsync tee methods
+description: Perform side effects that don't affect the Result
+---
+
+## Overview
+
+The `andTee` and `orTee` methods allow you to perform side effects on Ok or Err values without affecting the Result. Useful for logging, metrics, or other operations that shouldn't fail your main logic.
+
+## Signatures
+
+### andTee
+
+```typescript
+class ResultAsync<T, E> {
+  andTee(f: (t: T) => unknown): ResultAsync<T, E>
+}
+```
+
+<ParamField path="f" type="(t: T) => unknown" required>
+  Function to execute if Ok. Can be sync or async. Errors are caught and ignored.
+</ParamField>
+
+### orTee
+
+```typescript
+class ResultAsync<T, E> {
+  orTee(f: (e: E) => unknown): ResultAsync<T, E>
+}
+```
+
+<ParamField path="f" type="(e: E) => unknown" required>
+  Function to execute if Err. Can be sync or async. Errors are caught and ignored.
+</ParamField>
+
+**Returns:** The original ResultAsync unchanged
+
+## Usage
+
+### Logging success
+
+```typescript
+const result = await fetchUser(id)
+  .andTee(user => console.log('Fetched user:', user.name))
+  .andThen(validateUser)
+  .andTee(user => console.log('Validated user:', user.id))
+
+// Logs are printed, but don't affect the Result chain
+```
+
+### Logging errors
+
+```typescript
+const result = await processData(input)
+  .orTee(async error => {
+    await sendErrorToMonitoring(error)
+    console.error('Process failed:', error)
+  })
+  .orElse(handleError)
+```
+
+### Metrics collection
+
+```typescript
+const result = await apiCall()
+  .andTee(() => metrics.increment('api.success'))
+  .orTee(() => metrics.increment('api.failure'))
+```
+
+### Audit trail
+
+```typescript
+const processOrder = (order: Order) => {
+  return validateOrder(order)
+    .andTee(async () => {
+      await auditLog.write('ORDER_VALIDATED', order.id)
+    })
+    .andThen(chargePayment)
+    .andTee(async () => {
+      await auditLog.write('PAYMENT_CHARGED', order.id)
+    })
+}
+```
+
+## Error handling in tee functions
+
+<Note>
+  If the tee function throws an error or rejects, the error is **caught and ignored**. The original Result passes through unchanged.
+</Note>
+
+```typescript
+const result = await okAsync(5)
+  .andTee(() => {
+    throw new Error('This error is ignored')
+  })
+
+// result is still Ok(5)
+```
+
+## Key characteristics
+
+| Feature | andTee | orTee |
+|---------|--------|-------|
+| Runs on | Ok values | Err values |
+| Affects Result | No | No |
+| Error handling | Errors ignored | Errors ignored |
+| Return value | Original ResultAsync | Original ResultAsync |
+| Async support | Yes | Yes |
+
+## Comparison with through methods
+
+```typescript
+// andTee - errors ignored, value preserved
+const tee = await okAsync(user)
+  .andTee(logUser)     // If logUser fails, continues
+  .andThen(saveUser)
+// Type: ResultAsync<User, SaveError>
+
+// andThrough - errors propagate, value preserved  
+const through = await okAsync(user)
+  .andThrough(validateUser)  // If validate fails, chain stops
+  .andThen(saveUser)
+// Type: ResultAsync<User, ValidationError | SaveError>
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="through-methods" icon="arrow-right-arrow-left" href="./through-methods">
+    Side effects that can fail the chain
+  </Card>
+  <Card title="Result tee methods" icon="code" href="../result/tee-methods">
+    Synchronous version
+  </Card>
+</CardGroup>

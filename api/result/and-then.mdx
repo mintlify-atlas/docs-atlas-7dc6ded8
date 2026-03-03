@@ -1,0 +1,196 @@
+---
+title: Result.andThen()
+description: Chain computations that return Results, useful for sequential operations that may fail
+---
+
+## Overview
+
+Similar to `map`, but the mapping function must return a new `Result`. This is useful for chaining computations where each step might fail, and is excellent for flattening nested Results.
+
+## Signature
+
+```typescript
+class Result<T, E> {
+  andThen<R extends Result<unknown, unknown>>(
+    f: (t: T) => R
+  ): Result<InferOkTypes<R>, InferErrTypes<R> | E>
+  
+  andThen<U, F>(f: (t: T) => Result<U, F>): Result<U, E | F>
+}
+```
+
+## Parameters
+
+<ParamField path="f" type="(t: T) => Result<U, F>" required>
+  A function that takes the Ok value and returns a new Result. This function is only called if the current Result is Ok.
+</ParamField>
+
+## Returns
+
+Returns a new `Result<U, E | F>` where:
+- If the original Result is `Ok(value)`, returns the result of `f(value)`
+- If the original Result is `Err(error)`, returns `Err(error)` without calling `f`
+- Error types from both Results are combined as a union type
+
+## Examples
+
+### Basic Chaining
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const sq = (n: number): Result<number, string> => ok(n ** 2)
+
+ok(2)
+  .andThen(sq)
+  .andThen(sq) // Ok(16)
+
+ok(2)
+  .andThen(sq)
+  .andThen(err) // Err(4)
+
+ok(2)
+  .andThen(err)
+  .andThen(sq) // Err(2) - sq never called
+```
+
+### Flattening Nested Results
+
+```typescript
+// It's common to have nested Results
+const nested = ok(ok(1234))
+// nested is Result<Result<number, E2>, E1>
+
+// Flatten using andThen with identity function
+const notNested = nested.andThen((innerResult) => innerResult)
+// notNested is Result<number, E1 | E2>
+```
+
+### Sequential Operations
+
+```typescript
+type User = { id: string; name: string }
+type Post = { userId: string; title: string }
+
+function validateUserId(id: string): Result<string, 'InvalidId'> {
+  return id.length > 0 ? ok(id) : err('InvalidId')
+}
+
+function fetchUser(id: string): Result<User, 'UserNotFound'> {
+  // ... database query
+}
+
+function getUserPosts(user: User): Result<Post[], 'DatabaseError'> {
+  // ... fetch posts
+}
+
+const result = validateUserId('123')
+  .andThen(fetchUser)
+  .andThen(getUserPosts)
+// result is Result<Post[], 'InvalidId' | 'UserNotFound' | 'DatabaseError'>
+```
+
+### Distinct Error Types (v4.1.0+)
+
+```typescript
+type ParseError = { type: 'parse'; message: string }
+type ValidationError = { type: 'validation'; field: string }
+type DatabaseError = { type: 'database'; code: number }
+
+function parseInput(raw: string): Result<Input, ParseError> {
+  // ...
+}
+
+function validateInput(input: Input): Result<ValidInput, ValidationError> {
+  // ...
+}
+
+function saveToDb(input: ValidInput): Result<void, DatabaseError> {
+  // ...
+}
+
+const result = parseInput(raw)
+  .andThen(validateInput)
+  .andThen(saveToDb)
+// result is Result<void, ParseError | ValidationError | DatabaseError>
+```
+
+### Real-World Example
+
+```typescript
+import { validateUser } from 'imaginary-validator'
+import { insertUser } from 'imaginary-database'
+import { sendNotification } from 'imaginary-service'
+
+// Signatures:
+// validateUser(user: User): Result<User, Error>
+// insertUser(user: User): ResultAsync<User, Error>
+// sendNotification(user: User): ResultAsync<void, Error>
+
+const result = validateUser(user)
+  .andThen(insertUser)
+  .andThen(sendNotification)
+
+result.then((res: Result<void, Error>) => {
+  if (res.isErr()) {
+    console.log('At least one step failed', res.error)
+  } else {
+    console.log('User validated, inserted and notified successfully')
+  }
+})
+```
+
+### Error Short-Circuiting
+
+```typescript
+const computation = ok(10)
+  .andThen((n) => {
+    console.log('Step 1:', n)
+    return ok(n * 2)
+  })
+  .andThen((n) => {
+    console.log('Step 2:', n)
+    return err('Failed at step 2')
+  })
+  .andThen((n) => {
+    console.log('Step 3:', n) // This won't be logged
+    return ok(n + 5)
+  })
+
+// Output:
+// Step 1: 10
+// Step 2: 20
+// computation is Err('Failed at step 2')
+```
+
+## Implementation Details
+
+From the source code (result.ts:337-339):
+
+```typescript
+andThen(f: any): any {
+  return f(this.value)
+}
+```
+
+For `Err` (result.ts:461-463):
+
+```typescript
+andThen(_f: any): any {
+  return err(this.error)
+}
+```
+
+## Notes
+
+- `andThen` is also known as `flatMap` or `bind` in other functional programming libraries
+- Perfect for avoiding nested Results like `Result<Result<T, E2>, E1>`
+- All error types are preserved as a union type
+- For async operations, use [asyncAndThen()](/api/result/async-and-then)
+- The operation short-circuits on the first error
+
+## Related
+
+- [Result.map()](/api/result/map) - Transform values without returning a Result
+- [Result.asyncAndThen()](/api/result/async-and-then) - Chain async operations
+- [Result.orElse()](/api/result/or-else) - Chain operations on the error path

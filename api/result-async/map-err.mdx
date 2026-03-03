@@ -1,0 +1,81 @@
+---
+title: ResultAsync.mapErr
+description: Transform the Err value of a ResultAsync
+---
+
+## Overview
+
+Maps a `ResultAsync<T, E>` to `ResultAsync<T, F>` by applying a function to the contained `Err` value. The `Ok` value is left untouched.
+
+## Signature
+
+```typescript
+class ResultAsync<T, E> {
+  mapErr<U>(f: (e: E) => U | Promise<U>): ResultAsync<T, U>
+}
+```
+
+<ParamField path="f" type="(e: E) => U | Promise<U>" required>
+  Function to transform the Err value. Can return either a value or a Promise.
+</ParamField>
+
+**Returns:** `ResultAsync<T, U>` - A new ResultAsync with the transformed error
+
+## Usage
+
+### Convert error types
+
+```typescript
+type ApiError = { code: number, message: string }
+
+const result = await fetchData()
+  .mapErr((error: Error) => ({
+    code: 500,
+    message: error.message
+  }))
+
+// Result<Data, ApiError>
+```
+
+### Async error mapping
+
+```typescript
+const result = await queryDatabase(sql)
+  .mapErr(async (dbError) => {
+    // Log error asynchronously
+    await logError(dbError)
+    return 'Database query failed'
+  })
+```
+
+### Add context to errors
+
+```typescript
+const processFile = (filename: string) => {
+  return readFile(filename)
+    .mapErr(err => `Failed to read ${filename}: ${err}`)
+    .andThen(parseJSON)
+    .mapErr(err => `Failed to parse ${filename}: ${err}`)
+}
+```
+
+## Key characteristics
+
+- **Short-circuits on Ok**: If the ResultAsync is Ok, mapErr is not executed
+- **Type transformation**: Allows changing the error type in the Result
+- **Async support**: Can handle both sync and async error transformation functions
+
+<Tip>
+  Use `mapErr` to normalize error types across different operations, making error handling consistent.
+</Tip>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="map" icon="arrow-right" href="./map">
+    Transform the Ok value
+  </Card>
+  <Card title="orElse" icon="rotate-left" href="./or-else">
+    Recover from errors
+  </Card>
+</CardGroup>

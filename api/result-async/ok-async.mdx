@@ -1,0 +1,81 @@
+---
+title: okAsync
+description: Create an Ok variant of ResultAsync
+---
+
+## Overview
+
+The `okAsync` function constructs a `ResultAsync` containing an `Ok` variant with the provided value.
+
+## Signature
+
+```typescript
+function okAsync<T, E = never>(value: T): ResultAsync<T, E>
+function okAsync<T extends void = void, E = never>(value: void): ResultAsync<void, E>
+```
+
+<ParamField path="value" type="T" required>
+  The success value to wrap in a ResultAsync
+</ParamField>
+
+**Returns:** `ResultAsync<T, E>` - A ResultAsync containing the Ok value
+
+## Usage
+
+### Basic usage
+
+```typescript
+import { okAsync } from 'neverthrow'
+
+const myResultAsync = okAsync({ myData: 'test' })
+
+const myResult = await myResultAsync
+
+myResult.isOk() // true
+myResult.isErr() // false
+```
+
+### Async context
+
+```typescript
+async function fetchUser(id: number) {
+  if (id > 0) {
+    return okAsync({ id, name: 'Alice' })
+  }
+  return errAsync('Invalid ID')
+}
+
+const result = await fetchUser(1)
+// Result<{ id: number, name: string }, string>
+```
+
+### Chaining operations
+
+```typescript
+const result = await okAsync(5)
+  .map(x => x * 2)
+  .map(x => x.toString())
+
+// result is Ok('10')
+```
+
+## When to use
+
+- Starting an async operation that cannot fail
+- Converting a successful value into a ResultAsync for consistency
+- Creating test data with async operations
+
+<Note>
+  `okAsync` immediately wraps the value in a resolved Promise. For values that are already promises, use `ResultAsync.fromSafePromise()` instead.
+</Note>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="errAsync" icon="xmark" href="./err-async">
+    Create an Err variant of ResultAsync
+  </Card>
+  <Card title="ResultAsync.fromPromise" icon="arrow-right" href="./from-promise">
+    Create ResultAsync from a Promise
+  </Card>
+</CardGroup>

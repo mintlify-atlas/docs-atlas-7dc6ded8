@@ -1,0 +1,171 @@
+---
+title: ResultAsync.fromThrowable
+description: Wrap async functions that might throw
+---
+
+## Overview
+
+Converts an async function that might throw into a function that returns a `ResultAsync`. This is the safest way to handle third-party async functions.
+
+## Signature
+
+```typescript
+static fromThrowable<A extends readonly any[], R, E>(
+  fn: (...args: A) => Promise<R>,
+  errorFn?: (err: unknown) => E
+): (...args: A) => ResultAsync<R, E>
+```
+
+<ParamField path="fn" type="(...args: A) => Promise<R>" required>
+  An async function that might throw or return a rejecting Promise
+</ParamField>
+
+<ParamField path="errorFn" type="(err: unknown) => E">
+  Optional function to map thrown errors to a known type. Defaults to returning the error as-is.
+</ParamField>
+
+**Returns:** A new function with the same parameters that returns `ResultAsync<R, E>`
+
+## Usage
+
+### Basic usage
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+type DbError = { message: string }
+
+const safeQuery = ResultAsync.fromThrowable(
+  async (sql: string) => await db.query(sql),
+  (e): DbError => ({ message: String(e) })
+)
+
+const result = await safeQuery('SELECT * FROM users')
+// result is Result<QueryResult, DbError>
+```
+
+### File operations
+
+```typescript
+import fs from 'fs/promises'
+
+const safeReadFile = ResultAsync.fromThrowable(
+  fs.readFile,
+  (error) => `Failed to read file: ${error}`
+)
+
+const content = await safeReadFile('config.json', 'utf-8')
+if (content.isOk()) {
+  console.log(content.value)
+}
+```
+
+### API calls
+
+```typescript
+type ApiError = { status: number, message: string }
+
+const safeFetch = ResultAsync.fromThrowable(
+  async (url: string) => {
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return response.json()
+  },
+  (e): ApiError => ({
+    status: 500,
+    message: e instanceof Error ? e.message : String(e)
+  })
+)
+
+const data = await safeFetch('/api/users')
+```
+
+### Database operations
+
+```typescript
+interface User {
+  id: number
+  email: string
+}
+
+const findUser = ResultAsync.fromThrowable(
+  async (email: string): Promise<User> => {
+    const user = await db.users.findUnique({ where: { email } })
+    if (!user) throw new Error('User not found')
+    return user
+  },
+  (e) => e instanceof Error ? e.message : 'Unknown error'
+)
+
+const user = await findUser('[email protected]')
+```
+
+## Why use fromThrowable over fromPromise?
+
+<Note>
+  `fromThrowable` is safer because it catches both synchronous throws and Promise rejections.
+</Note>
+
+```typescript
+// This function can throw synchronously OR return a rejected Promise
+const dangerousFunction = async (id: number) => {
+  if (id < 0) {
+    throw new Error('Invalid ID')  // Synchronous throw!
+  }
+  return fetch(`/api/${id}`)  // May reject
+}
+
+// ❌ UNSAFE - fromPromise doesn't catch synchronous throws
+const unsafe = ResultAsync.fromPromise(
+  dangerousFunction(-1),  // Throws immediately!
+  (e) => String(e)
+)
+
+// ✅ SAFE - fromThrowable catches both
+const safe = ResultAsync.fromThrowable(
+  dangerousFunction,
+  (e) => String(e)
+)
+const result = await safe(-1)  // Returns Err, doesn't throw
+```
+
+## Key characteristics
+
+- **Catches all errors**: Both sync throws and Promise rejections
+- **Preserves parameters**: Wrapped function has same signature
+- **Type safety**: Error type is controlled by errorFn
+- **Reusable**: Create the wrapper once, use many times
+
+## Comparison table
+
+| Method | Catches sync throws | Catches async rejects | Use case |
+|--------|-------------------|---------------------|----------|
+| `fromThrowable` | ✅ Yes | ✅ Yes | Wrapping functions |
+| `fromPromise` | ❌ No | ✅ Yes | Wrapping Promises |
+| `fromSafePromise` | ❌ No | ❌ No | Promises that never reject |
+
+## Top-level export
+
+Also available as a standalone function:
+
+```typescript
+import { fromAsyncThrowable } from 'neverthrow'
+
+const safeFn = fromAsyncThrowable(
+  myAsyncFunction,
+  (e) => `Error: ${e}`
+)
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Result.fromThrowable" icon="shield" href="../result/from-throwable">
+    Synchronous version
+  </Card>
+  <Card title="from-promise" icon="clock" href="./from-promise">
+    Alternative for Promise objects
+  </Card>
+</CardGroup>

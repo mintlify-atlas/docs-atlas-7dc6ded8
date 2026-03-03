@@ -1,0 +1,541 @@
+---
+title: 'Error Recovery'
+description: 'Master error handling and recovery with orElse, match, and unwrapOr patterns'
+---
+
+## Why Error Recovery?
+
+Not all errors are fatal. Error recovery lets you:
+
+- Provide fallback values when operations fail
+- Retry operations with different strategies
+- Transform errors into successes when appropriate
+- Gracefully degrade functionality
+
+```typescript
+// Without recovery - error propagates
+const result = fetchFromCache(id)
+if (result.isErr()) {
+  return result // Just give up
+}
+
+// With recovery - try alternative
+const result = fetchFromCache(id)
+  .orElse(() => fetchFromDatabase(id))
+  .orElse(() => ok(defaultValue))
+```
+
+## Using orElse for Fallback
+
+### Basic Error Recovery
+
+`orElse` lets you recover from an error by providing an alternative Result:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+enum DatabaseError {
+  NotFound = 'NotFound',
+  ConnectionFailed = 'ConnectionFailed'
+}
+
+function getUser(id: string): Result<string, DatabaseError> {
+  return err(DatabaseError.NotFound)
+}
+
+const result = getUser('123').orElse((error) => {
+  if (error === DatabaseError.NotFound) {
+    // Recover with a default value
+    return ok('Guest User')
+  }
+  // Let other errors propagate
+  return err(error)
+})
+
+result._unsafeUnwrap() // "Guest User"
+```
+
+### Chaining Multiple Fallbacks
+
+Try multiple recovery strategies:
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+function fetchFromCache(id: string): ResultAsync<string, string> {
+  return errAsync('Cache miss')
+}
+
+function fetchFromDatabase(id: string): ResultAsync<string, string> {
+  return errAsync('Database unavailable')
+}
+
+function fetchFromBackup(id: string): ResultAsync<string, string> {
+  return okAsync('Data from backup')
+}
+
+// Try cache -> database -> backup
+const result = await fetchFromCache('123')
+  .orElse((error) => {
+    console.log('Cache failed:', error)
+    return fetchFromDatabase('123')
+  })
+  .orElse((error) => {
+    console.log('Database failed:', error)
+    return fetchFromBackup('123')
+  })
+
+result._unsafeUnwrap() // "Data from backup"
+```
+
+## Real-World Example: Multi-Tier Data Loading
+
+<Steps>
+  <Step title="Define data sources">
+    ```typescript
+    import { ResultAsync, okAsync, errAsync } from 'neverthrow'
+
+    interface UserData {
+      id: string
+      name: string
+      email: string
+      lastLogin: Date
+    }
+
+    class DataSource {
+      static fromCache(userId: string): ResultAsync<UserData, string> {
+        // Simulate cache check
+        const cached = cache.get(`user:${userId}`)
+        if (!cached) {
+          return errAsync('Not in cache')
+        }
+        return okAsync(cached as UserData)
+      }
+
+      static fromDatabase(userId: string): ResultAsync<UserData, string> {
+        return ResultAsync.fromPromise(
+          db.query('SELECT * FROM users WHERE id = ?', [userId]),
+          (e) => `Database error: ${e}`
+        ).andThen((rows) => {
+          if (rows.length === 0) {
+            return errAsync('User not found')
+          }
+          return okAsync(rows[0] as UserData)
+        })
+      }
+
+      static fromAPI(userId: string): ResultAsync<UserData, string> {
+        return ResultAsync.fromPromise(
+          fetch(`https://api.example.com/users/${userId}`)
+            .then(r => r.json()),
+          (e) => `API error: ${e}`
+        )
+      }
+
+      static default(userId: string): Result<UserData, never> {
+        // Never fails - always returns a guest user
+        return ok({
+          id: userId,
+          name: 'Guest',
+          email: 'guest@example.com',
+          lastLogin: new Date()
+        })
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Implement recovery chain">
+    ```typescript
+    async function loadUser(userId: string): Promise<UserData> {
+      const result = await DataSource.fromCache(userId)
+        .orElse((cacheError) => {
+          console.log(`Cache miss: ${cacheError}`)
+          return DataSource.fromDatabase(userId)
+        })
+        .orElse((dbError) => {
+          console.log(`Database error: ${dbError}`)
+          return DataSource.fromAPI(userId)
+        })
+        .orElse((apiError) => {
+          console.error(`All sources failed: ${apiError}`)
+          return DataSource.default(userId)
+        })
+
+      // At this point, result is guaranteed to be Ok
+      return result._unsafeUnwrap()
+    }
+    ```
+  </Step>
+
+  <Step title="Use with metrics">
+    ```typescript
+    async function loadUserWithMetrics(userId: string): Promise<UserData> {
+      const startTime = Date.now()
+      let source = 'unknown'
+
+      const result = await DataSource.fromCache(userId)
+        .andTee(() => { source = 'cache' })
+        .orElse((cacheError) => {
+          metrics.increment('cache.miss')
+          return DataSource.fromDatabase(userId)
+            .andTee(() => { source = 'database' })
+        })
+        .orElse((dbError) => {
+          metrics.increment('database.error')
+          return DataSource.fromAPI(userId)
+            .andTee(() => { source = 'api' })
+        })
+        .orElse((apiError) => {
+          metrics.increment('api.error')
+          source = 'default'
+          return DataSource.default(userId)
+        })
+
+      const duration = Date.now() - startTime
+      metrics.timing(`user.load.${source}`, duration)
+
+      return result._unsafeUnwrap()
+    }
+    ```
+  </Step>
+</Steps>
+
+## Using unwrapOr for Simple Defaults
+
+When you just need a default value:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+function getUserName(id: string): Result<string, string> {
+  // ... fetch from database
+  return err('User not found')
+}
+
+// Simple default
+const name = getUserName('123').unwrapOr('Anonymous')
+console.log(name) // "Anonymous"
+
+// Combine with map
+const greeting = getUserName('123')
+  .map(name => `Hello, ${name}!`)
+  .unwrapOr('Hello, Guest!')
+
+console.log(greeting) // "Hello, Guest!"
+```
+
+### unwrapOr vs orElse
+
+<Tabs>
+  <Tab title="Use unwrapOr">
+    When you want a simple default value:
+
+    ```typescript
+    const timeout = config.get('timeout')
+      .unwrapOr(5000) // Default timeout
+
+    const retries = config.get('retries')
+      .unwrapOr(3) // Default retries
+
+    // Type: number (not Result)
+    ```
+  </Tab>
+
+  <Tab title="Use orElse">
+    When you need to perform another operation:
+
+    ```typescript
+    const data = fetchFromCache(id)
+      .orElse(() => fetchFromDatabase(id))
+
+    // Still a Result - can chain more operations
+    data.map(processData)
+      .match(
+        (result) => console.log('Success:', result),
+        (error) => console.error('Failed:', error)
+      )
+    ```
+  </Tab>
+</Tabs>
+
+## Pattern Matching with match
+
+### Complete Error Handling
+
+`match` forces you to handle both success and failure:
+
+```typescript
+import { Result } from 'neverthrow'
+
+function divide(a: number, b: number): Result<number, string> {
+  if (b === 0) return err('Division by zero')
+  return ok(a / b)
+}
+
+const message = divide(10, 2).match(
+  (result) => `Result: ${result}`,
+  (error) => `Error: ${error}`
+)
+
+console.log(message) // "Result: 5"
+```
+
+Both callbacks must return the same type, and `match` unwraps the Result:
+
+```typescript
+interface UserDisplay {
+  status: 'success' | 'error'
+  message: string
+}
+
+function displayUser(result: Result<User, string>): UserDisplay {
+  return result.match(
+    (user) => ({
+      status: 'success',
+      message: `Welcome, ${user.name}!`
+    }),
+    (error) => ({
+      status: 'error',
+      message: `Failed to load user: ${error}`
+    })
+  )
+}
+```
+
+### Async Pattern Matching
+
+With `ResultAsync`, `match` returns a Promise:
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+function validateAndSave(
+  user: User
+): ResultAsync<User, string> {
+  return validateUser(user)
+    .andThen(saveUser)
+}
+
+// match returns Promise<string>
+const message = await validateAndSave(user).match(
+  (saved) => `User ${saved.name} created successfully`,
+  (error) => `Failed to create user: ${error}`
+)
+
+console.log(message)
+```
+
+## Error Context and Recovery
+
+Add context as errors flow through recovery chains:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+interface AppError {
+  code: string
+  message: string
+  context?: Record<string, unknown>
+}
+
+function fetchData(id: string): Result<string, string> {
+  return err('Network timeout')
+}
+
+function enrichError(error: string, context: Record<string, unknown>): AppError {
+  return {
+    code: 'FETCH_ERROR',
+    message: error,
+    context
+  }
+}
+
+const result = fetchData('123')
+  .mapErr(error => enrichError(error, { id: '123', attempt: 1 }))
+  .orElse((error) => {
+    // Log and retry
+    console.error('First attempt failed:', error)
+    return fetchData('123')
+      .mapErr(e => enrichError(e, { id: '123', attempt: 2 }))
+  })
+  .orElse((error) => {
+    // Final fallback with full context
+    console.error('All attempts failed:', error)
+    return ok('Cached data')
+  })
+```
+
+## Conditional Recovery
+
+Recover only from specific errors:
+
+```typescript
+enum HttpError {
+  NotFound = 404,
+  Unauthorized = 401,
+  ServerError = 500
+}
+
+function fetchUser(id: string): Result<User, HttpError> {
+  return err(HttpError.NotFound)
+}
+
+const result = fetchUser('123').orElse((error) => {
+  switch (error) {
+    case HttpError.NotFound:
+      // Recoverable - return guest user
+      return ok(createGuestUser())
+    
+    case HttpError.Unauthorized:
+      // Redirect to login (side effect)
+      redirectToLogin()
+      return err(error)
+    
+    case HttpError.ServerError:
+      // Not recoverable - propagate
+      return err(error)
+  }
+})
+```
+
+## Real-World Example: Retry with Backoff
+
+Implement retry logic with exponential backoff:
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+function fetchWithRetry<T, E>(
+  operation: () => ResultAsync<T, E>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): ResultAsync<T, E> {
+  let attempt = 0
+
+  function tryOperation(): ResultAsync<T, E> {
+    return operation().orElse((error) => {
+      attempt++
+      
+      if (attempt >= maxRetries) {
+        console.error(`Failed after ${attempt} attempts`)
+        return errAsync(error)
+      }
+
+      const delayMs = baseDelay * Math.pow(2, attempt - 1)
+      console.log(`Attempt ${attempt} failed, retrying in ${delayMs}ms...`)
+      
+      return ResultAsync.fromSafePromise(delay(delayMs))
+        .andThen(() => tryOperation())
+    })
+  }
+
+  return tryOperation()
+}
+
+// Usage
+function fetchData(url: string): ResultAsync<string, string> {
+  return ResultAsync.fromPromise(
+    fetch(url).then(r => r.text()),
+    (e) => `Network error: ${e}`
+  )
+}
+
+const result = await fetchWithRetry(
+  () => fetchData('https://api.example.com/data'),
+  3,
+  1000
+)
+
+result.match(
+  (data) => console.log('Success:', data),
+  (error) => console.error('Failed after retries:', error)
+)
+```
+
+## Combining Recovery Strategies
+
+Mix different recovery patterns:
+
+```typescript
+import { Result, ResultAsync, ok, err } from 'neverthrow'
+
+interface Config {
+  apiUrl: string
+  timeout: number
+  retries: number
+}
+
+const DEFAULT_CONFIG: Config = {
+  apiUrl: 'https://api.example.com',
+  timeout: 5000,
+  retries: 3
+}
+
+function loadConfigFromFile(): Result<Config, string> {
+  return err('Config file not found')
+}
+
+function loadConfigFromEnv(): Result<Config, string> {
+  const apiUrl = process.env.API_URL
+  if (!apiUrl) return err('API_URL not set')
+  
+  return ok({
+    apiUrl,
+    timeout: parseInt(process.env.TIMEOUT || '5000'),
+    retries: parseInt(process.env.RETRIES || '3')
+  })
+}
+
+async function loadConfigFromRemote(): Promise<Result<Config, string>> {
+  return ResultAsync.fromPromise(
+    fetch('https://config.example.com/app-config.json')
+      .then(r => r.json()),
+    (e) => `Failed to fetch config: ${e}`
+  )
+}
+
+// Try multiple sources with different recovery strategies
+async function loadConfig(): Promise<Config> {
+  // Try file -> env -> remote -> default
+  return loadConfigFromFile()
+    .orElse(() => {
+      console.log('No config file, trying environment variables')
+      return loadConfigFromEnv()
+    })
+    .asyncAndThen((config) => {
+      // Validate loaded config
+      if (config.timeout < 1000) {
+        return errAsync('Timeout too low')
+      }
+      return okAsync(config)
+    })
+    .orElse(() => {
+      console.log('Environment config invalid, trying remote')
+      return ResultAsync.fromPromise(
+        loadConfigFromRemote(),
+        (e) => `Remote config failed: ${e}`
+      )
+    })
+    .orElse((error) => {
+      console.warn('All config sources failed, using defaults:', error)
+      return ok(DEFAULT_CONFIG)
+    })
+    .then(result => result._unsafeUnwrap()) // Guaranteed to be Ok
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Basic Usage" icon="book" href="/guides/basic-usage">
+    Review the fundamentals of Result types
+  </Card>
+  <Card title="Chaining Operations" icon="link" href="/guides/chaining-operations">
+    Learn how to compose complex operations
+  </Card>
+</CardGroup>

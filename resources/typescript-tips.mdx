@@ -1,0 +1,404 @@
+---
+title: TypeScript Best Practices
+description: Advanced TypeScript patterns and best practices when using NeverThrow
+---
+
+## TypeScript Best Practices
+
+Get the most out of NeverThrow with these TypeScript tips and patterns for better type safety and developer experience.
+
+## Type Inference Best Practices
+
+### Let TypeScript Infer When Possible
+
+In most cases, TypeScript can infer the types of your Results automatically:
+
+```typescript
+import { ok, err, Result } from 'neverthrow'
+
+// Type is inferred as Result<number, never>
+const success = ok(42)
+
+// Type is inferred as Result<never, string>
+const failure = err('Something went wrong')
+
+// Explicit typing when needed
+const result: Result<number, string> = someCondition 
+  ? ok(42) 
+  : err('error')
+```
+
+### Avoid Explicit Type Arguments Unless Required
+
+Most methods like `map`, `andThen`, and `match` infer types correctly:
+
+```typescript
+// Good: Types are inferred
+const result = ok(5)
+  .map(x => x * 2)
+  .andThen(x => ok(x.toString()))
+
+// Unnecessary: Explicit types not needed
+const result = ok<number, never>(5)
+  .map<number>(x => x * 2)
+  .andThen<string, never>(x => ok(x.toString()))
+```
+
+**Exception:** Explicit type arguments are needed when migrating to v8.0.0 for `orElse` if you were using explicit types.
+
+## Working with Union Types
+
+### Distinct Error Types with `andThen`
+
+Starting in v4.1.0, `andThen` allows you to return distinct error types that are merged into a union:
+
+```typescript
+type ParseError = { type: 'parse'; message: string }
+type ValidationError = { type: 'validation'; field: string }
+type DatabaseError = { type: 'database'; code: number }
+
+function parseInput(raw: string): Result<User, ParseError> {
+  // ...
+}
+
+function validateUser(user: User): Result<User, ValidationError> {
+  // ...
+}
+
+function saveUser(user: User): ResultAsync<User, DatabaseError> {
+  // ...
+}
+
+// Error type is automatically: ParseError | ValidationError | DatabaseError
+const result = parseInput(input)
+  .andThen(validateUser)
+  .asyncAndThen(saveUser)
+```
+
+### Discriminated Unions for Error Handling
+
+Use discriminated unions with error types for exhaustive error handling:
+
+```typescript
+type AppError = 
+  | { type: 'network'; statusCode: number }
+  | { type: 'validation'; fields: string[] }
+  | { type: 'auth'; reason: string }
+
+function handleError(error: AppError): string {
+  switch (error.type) {
+    case 'network':
+      return `Network error: ${error.statusCode}`
+    case 'validation':
+      return `Invalid fields: ${error.fields.join(', ')}`
+    case 'auth':
+      return `Auth failed: ${error.reason}`
+    // TypeScript ensures all cases are handled
+  }
+}
+
+const result: Result<Data, AppError> = fetchData()
+result.mapErr(handleError)
+```
+
+## Advanced Pattern Matching
+
+### Type Narrowing with String Literals
+
+As of v7.1.0, `err()` infers strings narrowly for easier error tagging:
+
+```typescript
+// Error type is inferred as 'NotFound' (not string)
+const notFound = err('NotFound')
+
+// Useful for pattern matching
+const result = fetchUser(id)
+
+if (result.isErr()) {
+  switch (result.error) {
+    case 'NotFound':
+      return 404
+    case 'Unauthorized':
+      return 401
+    default:
+      return 500
+  }
+}
+```
+
+### Generic Result Handlers
+
+Create reusable type-safe handlers:
+
+```typescript
+type Handler<T, E, R> = {
+  onOk: (value: T) => R
+  onErr: (error: E) => R
+}
+
+function handle<T, E, R>(
+  result: Result<T, E>,
+  handler: Handler<T, E, R>
+): R {
+  return result.match(handler.onOk, handler.onErr)
+}
+
+// Usage
+const httpHandler: Handler<User, AppError, Response> = {
+  onOk: (user) => res.json(user),
+  onErr: (error) => res.status(getStatusCode(error)).json({ error })
+}
+
+handle(getUserResult, httpHandler)
+```
+
+## Async Patterns
+
+### Combining Sync and Async Results
+
+Use `asyncAndThen` to transition from `Result` to `ResultAsync`:
+
+```typescript
+import { Result, ResultAsync } from 'neverthrow'
+
+function validateInput(data: unknown): Result<Input, ValidationError> {
+  // Synchronous validation
+}
+
+function saveToDb(input: Input): ResultAsync<Saved, DbError> {
+  // Async database operation
+}
+
+// Seamlessly chain sync and async
+const result: ResultAsync<Saved, ValidationError | DbError> = 
+  validateInput(data).asyncAndThen(saveToDb)
+```
+
+### Working with Promise
+
+Convert promises to ResultAsync safely:
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+// From throwing promise
+const result = ResultAsync.fromPromise(
+  fetch('/api/users'),
+  (error) => ({ type: 'network' as const, error })
+)
+
+// From safe promise (won't throw)
+const safeResult = ResultAsync.fromSafePromise(
+  Promise.resolve({ id: 1, name: 'Alice' })
+)
+```
+
+### Using `safeTry` with Async Generators
+
+`safeTry` supports async generator functions for cleaner async error handling:
+
+```typescript
+import { safeTry, ResultAsync } from 'neverthrow'
+
+declare function fetchUser(id: string): ResultAsync<User, FetchError>
+declare function fetchPosts(userId: string): ResultAsync<Post[], FetchError>
+
+function getUserWithPosts(id: string): ResultAsync<UserWithPosts, FetchError> {
+  return safeTry<UserWithPosts, FetchError>(async function*() {
+    // Automatically unwraps or returns early on error
+    const user = yield* fetchUser(id)
+    const posts = yield* fetchPosts(user.id)
+    
+    return ok({ user, posts })
+  })
+}
+```
+
+## Handling Multiple Results
+
+### Homogeneous Lists
+
+Combine arrays of Results with the same type:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+const results: Result<number, string>[] = [
+  ok(1),
+  ok(2),
+  ok(3)
+]
+
+// Type: Result<number[], string>
+const combined = Result.combine(results)
+
+combined.map(numbers => {
+  // numbers is number[]
+  console.log(numbers.reduce((a, b) => a + b, 0))
+})
+```
+
+### Heterogeneous Tuples
+
+Combine Results with different types using tuples:
+
+```typescript
+import { Result, ok } from 'neverthrow'
+
+const tuple = <T extends any[]>(...args: T): T => args
+
+const results = tuple(
+  ok('Alice'),
+  ok(25),
+  ok(true)
+)
+
+// Type: Result<[string, number, boolean], never>
+const combined = Result.combine(results)
+
+combined.map(([name, age, active]) => {
+  // Full type safety for each element
+  console.log(`${name} is ${age} years old and ${active ? 'active' : 'inactive'}`)
+})
+```
+
+### Collecting All Errors
+
+Use `combineWithAllErrors` when you need all error values:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+type ValidationError = { field: string; message: string }
+
+const results: Result<string, ValidationError>[] = [
+  ok('valid'),
+  err({ field: 'email', message: 'Invalid email' }),
+  ok('also valid'),
+  err({ field: 'password', message: 'Too short' })
+]
+
+// Type: Result<string[], ValidationError[]>
+const combined = Result.combineWithAllErrors(results)
+
+combined.mapErr(errors => {
+  // errors contains only the failed validation errors
+  errors.forEach(e => console.error(`${e.field}: ${e.message}`))
+})
+```
+
+## Type Guards and Narrowing
+
+### Using Type Predicates
+
+Combine Results with custom type guards:
+
+```typescript
+function isUser(value: unknown): value is User {
+  return typeof value === 'object' && 
+    value !== null && 
+    'id' in value && 
+    'name' in value
+}
+
+function parseUser(data: unknown): Result<User, string> {
+  if (isUser(data)) {
+    return ok(data)
+  }
+  return err('Invalid user data')
+}
+```
+
+### Exhaustive Matching
+
+TypeScript ensures exhaustive handling in match callbacks:
+
+```typescript
+type Status = 'pending' | 'success' | 'failed'
+
+function getResult(status: Status): Result<string, string> {
+  // TypeScript ensures all cases are handled
+  switch (status) {
+    case 'pending':
+      return err('Still processing')
+    case 'success':
+      return ok('Complete')
+    case 'failed':
+      return err('Failed')
+    // If you add a new status, TypeScript will error here
+  }
+}
+```
+
+## Performance Tips
+
+### Avoid Unnecessary Unwrapping
+
+Stay in the Result context as long as possible:
+
+```typescript
+// Avoid: Early unwrapping
+const value = result.unwrapOr(0)
+const doubled = value * 2
+const tripled = doubled * 3
+
+// Better: Chain operations
+const final = result
+  .map(x => x * 2)
+  .map(x => x * 3)
+  .unwrapOr(0)
+```
+
+### Reuse Error Mappers
+
+Create reusable error transformation functions:
+
+```typescript
+const toAppError = (error: unknown): AppError => {
+  if (error instanceof Error) {
+    return { type: 'system', message: error.message }
+  }
+  return { type: 'unknown', message: 'An error occurred' }
+}
+
+// Reuse across your codebase
+const result1 = Result.fromThrowable(mayThrow1, toAppError)
+const result2 = Result.fromThrowable(mayThrow2, toAppError)
+```
+
+## Common Patterns
+
+### Railway-Oriented Programming
+
+Chain operations on the "happy path":
+
+```typescript
+function processOrder(orderId: string): ResultAsync<Receipt, OrderError> {
+  return validateOrder(orderId)
+    .andThen(checkInventory)
+    .asyncAndThen(chargePayment)
+    .andThen(updateInventory)
+    .asyncAndThen(sendConfirmation)
+    .map(createReceipt)
+}
+
+// Errors automatically short-circuit and propagate
+```
+
+### Side Effects with Type Safety
+
+Use `andTee` and `orTee` for side effects:
+
+```typescript
+const result = processUser(data)
+  .andTee(user => logger.info('User processed', user))
+  .andThen(saveToDatabase)
+  .orTee(error => logger.error('Failed', error))
+  .map(notifySuccess)
+```
+
+## Further Reading
+
+- [Type-Safe Error Handling](https://github.com/supermacro/neverthrow/wiki)
+- [ResultAsync Deep Dive](/api-reference/result-async)
+- [Utilities Reference](/api-reference/utilities)

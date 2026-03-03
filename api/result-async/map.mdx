@@ -1,0 +1,88 @@
+---
+title: ResultAsync.map
+description: Transform the Ok value of a ResultAsync
+---
+
+## Overview
+
+Maps a `ResultAsync<T, E>` to `ResultAsync<U, E>` by applying a function to the contained `Ok` value. The `Err` value is left untouched.
+
+## Signature
+
+```typescript
+class ResultAsync<T, E> {
+  map<A>(f: (t: T) => A | Promise<A>): ResultAsync<A, E>
+}
+```
+
+<ParamField path="f" type="(t: T) => A | Promise<A>" required>
+  Function to transform the Ok value. Can return either a value or a Promise.
+</ParamField>
+
+**Returns:** `ResultAsync<A, E>` - A new ResultAsync with the transformed value
+
+## Usage
+
+### Basic transformation
+
+```typescript
+import { okAsync } from 'neverthrow'
+
+const result = await okAsync(5)
+  .map(x => x * 2)
+  .map(x => x.toString())
+
+// result is Ok('10')
+```
+
+### Async transformation
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+const fetchUser = (id: number): ResultAsync<User, Error> => {
+  return ResultAsync.fromPromise(
+    fetch(`/api/users/${id}`).then(r => r.json()),
+    (e) => new Error('Fetch failed')
+  )
+}
+
+const result = await fetchUser(123)
+  .map(async user => {
+    // Async transformation
+    const enriched = await enrichUserData(user)
+    return enriched
+  })
+  .map(user => user.name)
+```
+
+### Error handling
+
+```typescript
+const result = await errAsync('Database error')
+  .map(x => x * 2)
+  .map(x => x.toString())
+
+// map is never called, result is Err('Database error')
+```
+
+## Key characteristics
+
+<Note>
+  The mapping function can be either synchronous or asynchronous with no impact on the return type - both return `ResultAsync`.
+</Note>
+
+- **Short-circuits on Err**: If the ResultAsync is an Err, map is not executed
+- **Type safety**: The transformed type is tracked through the chain
+- **Async support**: Can handle both sync and async transformation functions
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="mapErr" icon="triangle-exclamation" href="./map-err">
+    Transform the error value
+  </Card>
+  <Card title="andThen" icon="link" href="./and-then">
+    Chain operations that return Results
+  </Card>
+</CardGroup>

@@ -1,0 +1,91 @@
+---
+title: err()
+description: Constructor function that creates an Err variant of Result
+---
+
+## Overview
+
+Constructs an `Err` variant of `Result`. This represents a failed computation with an error value.
+
+## Signature
+
+```typescript
+function err<T = never, E extends string = string>(err: E): Err<T, E>
+function err<T = never, E = unknown>(err: E): Err<T, E>
+function err<T = never, E extends void = void>(err: void): Err<T, void>
+```
+
+## Parameters
+
+<ParamField path="err" type="E" required>
+  The error value to wrap in an Err result. Can be any type including strings, Error objects, or custom error types.
+</ParamField>
+
+## Returns
+
+Returns an `Err<T, E>` instance containing the provided error value.
+
+## Examples
+
+### Basic Usage
+
+```typescript
+import { err } from 'neverthrow'
+
+const myResult = err('Oh noooo')
+
+myResult.isOk() // false
+myResult.isErr() // true
+```
+
+### With Error Objects
+
+```typescript
+const result = err(new Error('Something went wrong'))
+
+if (result.isErr()) {
+  console.error(result.error)
+}
+```
+
+### Type Annotations
+
+```typescript
+// Explicitly specify both success and error types
+const result = err<number, string>('Invalid input')
+// result is Err<number, string>
+
+// With custom error types
+type CustomError = { code: number; message: string }
+const customErr = err<string, CustomError>({
+  code: 404,
+  message: 'Not found'
+})
+```
+
+### In Function Returns
+
+```typescript
+function divide(a: number, b: number): Result<number, string> {
+  if (b === 0) {
+    return err('Cannot divide by zero')
+  }
+  return ok(a / b)
+}
+```
+
+## Behavior
+
+When a Result is an `Err`:
+- `.isErr()` returns `true`
+- `.isOk()` returns `false`
+- Mapping functions like `.map()` are skipped
+- Error mapping functions like `.mapErr()` are applied
+- The error value is accessible via `.error` property (after type narrowing) or `._unsafeUnwrapErr()`
+
+## Related
+
+- [ok()](/api/result/ok) - Create an Ok variant
+- [Result.isOk()](/api/result/is-ok) - Check if a Result is Ok
+- [Result.isErr()](/api/result/is-err) - Check if a Result is Err
+- [Result.mapErr()](/api/result/map-err) - Transform error values

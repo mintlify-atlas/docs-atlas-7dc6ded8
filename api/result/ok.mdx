@@ -1,0 +1,69 @@
+---
+title: ok()
+description: Constructor function that creates an Ok variant of Result
+---
+
+## Overview
+
+Constructs an `Ok` variant of `Result`. This represents a successful computation with a value.
+
+## Signature
+
+```typescript
+function ok<T, E = never>(value: T): Ok<T, E>
+function ok<T extends void = void, E = never>(value: void): Ok<void, E>
+```
+
+## Parameters
+
+<ParamField path="value" type="T" required>
+  The success value to wrap in an Ok result. Can be any type including `null`, `undefined`, or `void`.
+</ParamField>
+
+## Returns
+
+Returns an `Ok<T, E>` instance containing the provided value.
+
+## Examples
+
+### Basic Usage
+
+```typescript
+import { ok } from 'neverthrow'
+
+const myResult = ok({ myData: 'test' })
+
+myResult.isOk() // true
+myResult.isErr() // false
+```
+
+### With Null or Undefined
+
+```typescript
+// With null
+const okNull = ok(null)
+okNull.isOk() // true
+okNull._unsafeUnwrap() // null
+
+// With undefined
+const okUndefined = ok(undefined)
+okUndefined.isOk() // true
+okUndefined._unsafeUnwrap() // undefined
+```
+
+### Type Annotations
+
+```typescript
+// Explicitly specify both success and error types
+const result = ok<number, string>(42)
+// result is Ok<number, string>
+
+// For void results
+const voidResult = ok<void>(undefined)
+```
+
+## Related
+
+- [err()](/api/result/err) - Create an Err variant
+- [Result.isOk()](/api/result/is-ok) - Check if a Result is Ok
+- [Result.isErr()](/api/result/is-err) - Check if a Result is Err

@@ -1,0 +1,90 @@
+---
+title: errAsync
+description: Create an Err variant of ResultAsync
+---
+
+## Overview
+
+The `errAsync` function constructs a `ResultAsync` containing an `Err` variant with the provided error value.
+
+## Signature
+
+```typescript
+function errAsync<T = never, E extends string = string>(err: E): ResultAsync<T, E>
+function errAsync<T = never, E = unknown>(err: E): ResultAsync<T, E>
+function errAsync<T = never, E extends void = void>(err: void): ResultAsync<T, void>
+```
+
+<ParamField path="err" type="E" required>
+  The error value to wrap in a ResultAsync
+</ParamField>
+
+**Returns:** `ResultAsync<T, E>` - A ResultAsync containing the Err value
+
+## Usage
+
+### Basic usage
+
+```typescript
+import { errAsync } from 'neverthrow'
+
+const myResultAsync = errAsync('Oh nooo')
+
+const myResult = await myResultAsync
+
+myResult.isOk() // false
+myResult.isErr() // true
+```
+
+### Async error handling
+
+```typescript
+async function validateAge(age: number) {
+  if (age < 0) {
+    return errAsync('Age cannot be negative')
+  }
+  if (age < 18) {
+    return errAsync('Must be 18 or older')
+  }
+  return okAsync(age)
+}
+
+const result = await validateAge(15)
+// Result<number, string>
+```
+
+### Custom error types
+
+```typescript
+type DatabaseError = 
+  | { type: 'ConnectionError', message: string }
+  | { type: 'QueryError', query: string }
+
+async function queryDatabase(sql: string) {
+  return errAsync<User[], DatabaseError>({
+    type: 'QueryError',
+    query: sql
+  })
+}
+```
+
+## When to use
+
+- Returning an error from an async operation
+- Early returns in validation chains
+- Converting error states to ResultAsync for consistency
+
+<Warning>
+  Like `okAsync`, this wraps the error in a resolved Promise. The Promise itself does not reject.
+</Warning>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="okAsync" icon="check" href="./ok-async">
+    Create an Ok variant of ResultAsync
+  </Card>
+  <Card title="ResultAsync.fromPromise" icon="arrow-right" href="./from-promise">
+    Handle rejecting Promises
+  </Card>
+</CardGroup>

@@ -1,0 +1,85 @@
+---
+title: ResultAsync.orElse
+description: Recover from errors in a ResultAsync
+---
+
+## Overview
+
+Handles the `Err` case of a `ResultAsync` by applying a recovery function. Useful for error recovery, fallbacks, and error transformation.
+
+## Signature
+
+```typescript
+class ResultAsync<T, E> {
+  orElse<U, A>(
+    f: (e: E) => Result<U, A> | ResultAsync<U, A>
+  ): ResultAsync<U | T, A>
+}
+```
+
+<ParamField path="f" type="(e: E) => Result<U, A> | ResultAsync<U, A>" required>
+  Function that takes the Err value and returns a new Result or ResultAsync
+</ParamField>
+
+**Returns:** `ResultAsync<U | T, A>` - A ResultAsync with potentially recovered value
+
+## Usage
+
+### Simple fallback
+
+```typescript
+const result = await fetchFromCache(key)
+  .orElse(() => fetchFromDatabase(key))
+  .orElse(() => okAsync(defaultValue))
+
+// Tries cache, then database, then default
+```
+
+### Conditional recovery
+
+```typescript
+type ApiError = { code: number, message: string }
+
+const result = await callApi()
+  .orElse((error: ApiError) => {
+    if (error.code === 404) {
+      return okAsync(null) // Treat 404 as empty result
+    }
+    if (error.code === 503) {
+      return retryAfterDelay() // Retry on service unavailable
+    }
+    return errAsync(error) // Propagate other errors
+  })
+```
+
+### Multi-tier fallback
+
+```typescript
+const loadConfig = () => {
+  return readFromFile('./config.json')
+    .orElse(() => readFromFile('./config.default.json'))
+    .orElse(() => fetchFromRemote())
+    .orElse(() => okAsync(HARDCODED_DEFAULTS))
+}
+```
+
+## Key characteristics
+
+- **Only runs on Err**: If the ResultAsync is Ok, orElse is not executed
+- **Can change type**: The recovery function can return a different value type
+- **Error type changes**: The new error type replaces the original
+
+<Tip>
+  Use `orElse` to implement graceful degradation in your async operations.
+</Tip>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="andThen" icon="link" href="./and-then">
+    Chain successful operations
+  </Card>
+  <Card title="unwrapOr" icon="gift" href="./unwrap-or">
+    Provide a simple default value
+  </Card>
+</CardGroup>

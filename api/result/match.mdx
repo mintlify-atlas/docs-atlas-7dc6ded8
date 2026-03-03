@@ -1,0 +1,245 @@
+---
+title: Result.match()
+description: Execute different functions based on Ok or Err variant, returning a unified type
+---
+
+## Overview
+
+Given 2 functions (one for the `Ok` variant and one for the `Err` variant), execute the function that matches the `Result` variant. Both functions must return the same type, and the Result is unwrapped to that type.
+
+## Signature
+
+```typescript
+class Result<T, E> {
+  match<A, B = A>(
+    ok: (t: T) => A,
+    err: (e: E) => B
+  ): A | B
+}
+```
+
+## Parameters
+
+<ParamField path="ok" type="(t: T) => A" required>
+  A function to execute if the Result is Ok. Receives the success value.
+</ParamField>
+
+<ParamField path="err" type="(e: E) => B" required>
+  A function to execute if the Result is Err. Receives the error value.
+</ParamField>
+
+## Returns
+
+Returns `A | B` - the result of whichever function was executed. Unlike `map` and `mapErr`, this unwraps the Result into the return type of the callbacks.
+
+## Examples
+
+### Basic Usage
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const okResult = ok(12)
+const matched = okResult.match(
+  (value) => `Success: ${value}`,
+  (error) => `Error: ${error}`
+)
+// matched is 'Success: 12'
+
+const errResult = err('failed')
+const matchedErr = errResult.match(
+  (value) => `Success: ${value}`,
+  (error) => `Error: ${error}`
+)
+// matchedErr is 'Error: failed'
+```
+
+### Side Effects Only
+
+```typescript
+computationThatMightFail()
+  .match(
+    (result) => console.log('Success:', result),
+    (error) => console.error('Error:', error)
+  )
+// Both callbacks return void
+```
+
+### Returning Values
+
+```typescript
+const attempt = computationThatMightFail()
+  .map((str) => str.toUpperCase())
+  .mapErr((err) => `Error: ${err}`)
+// attempt is Result<string, string>
+
+const answer = computationThatMightFail()
+  .match(
+    (str) => str.toUpperCase(),
+    (err) => `Error: ${err}`
+  )
+// answer is string (unwrapped)
+```
+
+### HTTP Response Handling
+
+```typescript
+type User = { id: string; name: string }
+type ApiError = { status: number; message: string }
+
+function getUser(id: string): Result<User, ApiError> {
+  // ...
+}
+
+const response = getUser('123').match(
+  (user) => ({
+    status: 200,
+    body: { success: true, data: user }
+  }),
+  (error) => ({
+    status: error.status,
+    body: { success: false, error: error.message }
+  })
+)
+// response is always the same shape
+```
+
+### Converting to Different Types
+
+```typescript
+type DatabaseResult = Result<User[], DatabaseError>
+
+function formatForApi(result: DatabaseResult): ApiResponse {
+  return result.match(
+    (users) => ({
+      success: true,
+      data: users,
+      count: users.length
+    }),
+    (error) => ({
+      success: false,
+      error: error.message,
+      code: error.code
+    })
+  )
+}
+```
+
+### Forced Error Handling
+
+```typescript
+// Unlike map/mapErr, match forces you to handle both cases
+const value = someComputation().match(
+  (ok) => ok,
+  (err) => {
+    // You MUST handle the error case
+    // Can't forget like you can with just .map()
+    return getDefaultValue()
+  }
+)
+```
+
+### Equivalent to map + unwrapOr
+
+```typescript
+// These are equivalent when you don't use the error value:
+const result1 = computation().match(
+  (str) => str.toUpperCase(),
+  () => 'DEFAULT'
+)
+
+const result2 = computation()
+  .map((str) => str.toUpperCase())
+  .unwrapOr('DEFAULT')
+// Both have the same result
+```
+
+### Real-World Form Validation
+
+```typescript
+type FormData = { email: string; password: string }
+type ValidationError = { field: string; message: string }
+
+function validateForm(
+  data: FormData
+): Result<FormData, ValidationError> {
+  // ... validation logic
+}
+
+const formResult = validateForm(formData).match(
+  (validData) => {
+    // Submit the form
+    submitToApi(validData)
+    return { success: true, message: 'Form submitted!' }
+  },
+  (error) => {
+    // Show error to user
+    showFieldError(error.field, error.message)
+    return { success: false, message: error.message }
+  }
+)
+```
+
+### Pattern Matching Different Error Types
+
+```typescript
+type AppError = 
+  | { type: 'network'; code: number }
+  | { type: 'validation'; field: string }
+  | { type: 'auth'; reason: string }
+
+function handleResult(result: Result<Data, AppError>): string {
+  return result.match(
+    (data) => `Loaded ${data.items.length} items`,
+    (error) => {
+      switch (error.type) {
+        case 'network':
+          return `Network error: ${error.code}`
+        case 'validation':
+          return `Invalid ${error.field}`
+        case 'auth':
+          return `Authentication failed: ${error.reason}`
+      }
+    }
+  )
+}
+```
+
+## Implementation Details
+
+From the source code (result.ts:393-395):
+
+```typescript
+match<A, B = A>(ok: (t: T) => A, _err: (e: E) => B): A | B {
+  return ok(this.value)
+}
+```
+
+For `Err` (result.ts:492-494):
+
+```typescript
+match<A, B = A>(_ok: (t: T) => A, err: (e: E) => B): A | B {
+  return err(this.error)
+}
+```
+
+## Key Differences from map/mapErr
+
+1. **Unwraps the Result**: Returns the callback's return value directly, not wrapped in a Result
+2. **Forces both cases**: You must handle both Ok and Err paths
+3. **Same return type**: Both callbacks must return compatible types (A | B)
+4. **Cannot be chained**: Since it unwraps, you can't chain more Result methods after match
+
+## Notes
+
+- `match` is like chaining `map` and `mapErr`, but requires both functions to have the same return type
+- Both callbacks must be provided - you cannot skip error handling
+- The Result is consumed and unwrapped - you cannot chain more Result methods after
+- Recommended by `eslint-plugin-neverthrow` as a safe way to consume Results
+- For side effects only, both callbacks can return `void`
+
+## Related
+
+- [Result.map()](/api/result/map) - Transform Ok values
+- [Result.mapErr()](/api/result/map-err) - Transform Err values  
+- [Result.unwrapOr()](/api/result/unwrap-or) - Unwrap with a default value

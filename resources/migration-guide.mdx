@@ -1,0 +1,189 @@
+---
+title: Migration Guide
+description: Guide for migrating between major versions of NeverThrow
+---
+
+## Migration Guide
+
+This guide helps you migrate between major versions of NeverThrow, highlighting breaking changes and how to adapt your code.
+
+## Migrating to v8.0.0
+
+### Breaking Change: `orElse` Type Arguments
+
+Version 8.0.0 introduces a breaking change to the `orElse` method to allow changing Ok types, making the types match the implementation.
+
+**What Changed:**
+
+The `orElse` type argument order has changed. The ok type must now be provided before the err type.
+
+**Migration Steps:**
+
+```diff
+- result.orElse<ErrType>(foo)
++ result.orElse<OkType, ErrType>(foo)
+```
+
+**When to Update:**
+
+This only applies if you explicitly provided type arguments at an `orElse` callsite. If the type arguments were inferred, no updates are needed during the upgrade.
+
+<Accordion title="Example: Before and After">
+
+**Before (v7.x):**
+```typescript
+const result: Result<number, string> = err('database error')
+
+const recovered = result.orElse<DatabaseError>((error) => {
+  return ok(0)
+})
+```
+
+**After (v8.0+):**
+```typescript
+const result: Result<number, string> = err('database error')
+
+const recovered = result.orElse<number, DatabaseError>((error) => {
+  return ok(0)
+})
+```
+
+</Accordion>
+
+## Migrating to v7.0.0
+
+### Node.js Version Requirement
+
+Version 7.0.0 declares the minimum supported Node.js version in the `engines` field.
+
+**What Changed:**
+
+- Minimum Node.js version is now declared as `>=18`
+- Minimum npm version is now declared as `>=11`
+
+**Note:**
+
+NeverThrow does not depend on any Node.js version-specific features and should work with any version that supports ES6, including browsers, Deno, and other runtimes. The engine declaration is primarily for maintaining a consistent development environment.
+
+### Type Inference Improvements
+
+Version 7.0.0 includes several type inference improvements:
+
+- **`safeTry` type inference**: Type definitions were changed to make inferring types of `safeTry` more strict
+- **`match` type inference**: Enhanced type inference for the `match` method
+- **`combineWithAllErrors` types**: Fixed type definitions for better error handling
+
+## Migrating from v6.x to v7.x
+
+### `safeTry` Return Type Change
+
+In v7.2.0, the return type of `safeTry` was changed from `Promise<Result<T, E>>` to `ResultAsync<T, E>` for better composability.
+
+**What Changed:**
+
+```typescript
+// v6.x and early v7.x
+function safeTry(): Promise<Result<T, E>>
+
+// v7.2.0+
+function safeTry(): ResultAsync<T, E>
+```
+
+**Why This Matters:**
+
+`ResultAsync` is thenable and behaves like a native Promise, but provides additional methods like `map`, `andThen`, and `mapErr` without needing to `await` first.
+
+**Migration:**
+
+```typescript
+// Before: Need to await before chaining Result methods
+const result = await safeTry(async function* () {
+  // ...
+})
+result.map(x => x * 2)
+
+// After: Can chain directly
+safeTry(async function* () {
+  // ...
+}).map(x => x * 2)
+```
+
+### New Methods Added
+
+v7.1.0 introduced new methods for handling side effects:
+
+- **`andTee`**: Handle side effects on the Ok track without affecting the error type
+- **`andThrough`**: Similar to `andTee` but propagates errors from the callback
+- **`orTee`**: Handle side effects on the Err track (added in v8.2.0)
+
+These methods don't require migration but provide cleaner patterns for logging and validation.
+
+## Migrating from Earlier Versions
+
+### `safeTry` and `safeUnwrap`
+
+As of v8.1.0, `safeUnwrap` is deprecated. When using `safeTry` in v8.1.0+, you no longer need to call `.safeUnwrap()` on results.
+
+**Before (v8.0.x and earlier):**
+```typescript
+function myFunc(): Result<number, string> {
+  return safeTry<number, string>(function*() {
+    const value = yield* mayFail().safeUnwrap()
+    return ok(value * 2)
+  })
+}
+```
+
+**After (v8.1.0+):**
+```typescript
+function myFunc(): ResultAsync<number, string> {
+  return safeTry<number, string>(function*() {
+    const value = yield* mayFail()
+    return ok(value * 2)
+  })
+}
+```
+
+### Void Return Types
+
+As of v8.2.0, `ok`, `err`, `okAsync`, and `errAsync` can accept zero arguments when returning void:
+
+```typescript
+// v8.2.0+
+const result: Result<void, never> = ok()
+const error: Result<never, void> = err()
+```
+
+## Version History Summary
+
+### v8.2.0 (Current)
+- Added `orTee` method for error track side effects
+- Allow zero arguments for void returns in `ok`/`err`/`okAsync`/`errAsync`
+
+### v8.1.0
+- `safeTry` no longer requires `.safeUnwrap()`
+- Deprecated `safeUnwrap` method
+
+### v8.0.0
+- **Breaking**: `orElse` type argument order changed
+
+### v7.2.0
+- `safeTry` return type changed to `ResultAsync` for better composability
+
+### v7.1.0
+- Added `andTee`, `andThrough` methods
+- Fixed `combineWithAllErrors` types
+- Improved `err()` string inference
+
+### v7.0.0
+- Declared minimum Node.js version (>=18)
+- Improved type inference for `safeTry` and `match`
+
+## Need Help?
+
+If you encounter issues during migration:
+
+- Check the [GitHub Issues](https://github.com/supermacro/neverthrow/issues)
+- Review the [Changelog](/resources/changelog) for detailed version notes
+- Consult the [FAQ](/resources/faq) for common questions
+- Ask questions in [GitHub Discussions](https://github.com/supermacro/neverthrow/discussions)

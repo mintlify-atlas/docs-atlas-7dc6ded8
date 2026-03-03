@@ -1,0 +1,520 @@
+---
+title: FAQ
+description: Frequently asked questions about NeverThrow
+---
+
+## Frequently Asked Questions
+
+Find answers to common questions about NeverThrow, Result types, and error handling patterns.
+
+## General Questions
+
+<Accordion title="Why is the package called 'neverthrow'?">
+
+Although the package is called `neverthrow`, don't take this literally. The name encourages developers to think more carefully about the ergonomics and usage of their software.
+
+Throwing and catching exceptions is very similar to using `goto` statements - it makes reasoning about programs harder. Additionally, by using `throw` you make the assumption that the caller of your function is implementing `catch`, which is a known source of errors.
+
+**Example scenario:** One developer throws an error, and another developer uses the function without prior knowledge that it will throw. An edge case has been left unhandled, leading to unhappy users.
+
+That said, there are definitely legitimate use cases for throwing in your program - just far fewer than you might think.
+
+</Accordion>
+
+<Accordion title="What is a Result type?">
+
+A `Result` type represents either success (`Ok`) or failure (`Err`). This makes it impossible to ignore errors because the error is explicitly part of the type signature.
+
+Instead of:
+```typescript
+function divide(a: number, b: number): number {
+  if (b === 0) throw new Error('Division by zero')
+  return a / b
+}
+```
+
+You write:
+```typescript
+function divide(a: number, b: number): Result<number, string> {
+  if (b === 0) return err('Division by zero')
+  return ok(a / b)
+}
+```
+
+The caller **must** handle the error case explicitly.
+
+</Accordion>
+
+<Accordion title="How does NeverThrow compare to try/catch?">
+
+**try/catch:**
+- Errors are not visible in type signatures
+- Easy to forget to handle errors
+- Stack traces can be lost
+- Control flow is implicit
+
+**NeverThrow:**
+- Errors are explicit in type signatures
+- Compiler forces error handling
+- Composable error handling with `map`, `andThen`, etc.
+- Control flow is explicit and easier to reason about
+
+</Accordion>
+
+<Accordion title="What runtimes does NeverThrow support?">
+
+NeverThrow does not depend on any runtime-specific features. It works with:
+
+- **Node.js** (v18+)
+- **Browsers** (all modern browsers)
+- **Deno**
+- **Bun**
+- **Any JavaScript runtime** that supports ES6
+
+The `engines` field in `package.json` specifies Node.js v18+ and npm v11+ primarily for maintaining a consistent development environment, not as a hard runtime requirement.
+
+</Accordion>
+
+<Accordion title="Can I use NeverThrow with JavaScript (not TypeScript)?">
+
+Yes! NeverThrow works with plain JavaScript. However, you lose the type safety benefits that make Result types powerful. The library will still provide the same API, but TypeScript's compiler won't help catch errors.
+
+For maximum benefit, we strongly recommend using TypeScript.
+
+</Accordion>
+
+## Working with Results
+
+<Accordion title="When should I use Result vs ResultAsync?">
+
+**Use `Result`** for synchronous operations:
+```typescript
+function parseNumber(str: string): Result<number, string> {
+  const num = Number(str)
+  return isNaN(num) ? err('Invalid number') : ok(num)
+}
+```
+
+**Use `ResultAsync`** for asynchronous operations:
+```typescript
+function fetchUser(id: string): ResultAsync<User, Error> {
+  return ResultAsync.fromPromise(
+    fetch(`/api/users/${id}`).then(r => r.json()),
+    (e) => new Error('Failed to fetch user')
+  )
+}
+```
+
+**Note:** `ResultAsync` is thenable and behaves like a native Promise, but with additional methods.
+
+</Accordion>
+
+<Accordion title="How do I convert a throwing function to use Results?">
+
+Use `Result.fromThrowable` or `ResultAsync.fromThrowable`:
+
+```typescript
+import { Result } from 'neverthrow'
+
+// Original throwing function
+const originalFunction = (str: string) => JSON.parse(str)
+
+// Convert to Result-returning function
+type ParseError = { message: string }
+const safeJsonParse = Result.fromThrowable(
+  JSON.parse,
+  (error): ParseError => ({ message: String(error) })
+)
+
+// Now safe to use
+const result = safeJsonParse('{"name": "Alice"}')
+// result is Result<any, ParseError>
+```
+
+</Accordion>
+
+<Accordion title="What's the difference between map and andThen?">
+
+**`map`** transforms the Ok value, returning a new Result:
+```typescript
+ok(5)
+  .map(x => x * 2)  // Returns Result<number, never>
+  .map(x => x.toString())  // Returns Result<string, never>
+```
+
+**`andThen`** is for chaining operations that can fail:
+```typescript
+ok(5)
+  .andThen(x => x > 0 ? ok(x * 2) : err('Must be positive'))  
+  // Returns Result<number, string>
+  .andThen(x => ok(x.toString()))
+  // Returns Result<string, string>
+```
+
+Use `map` when the transformation cannot fail, and `andThen` when it can.
+
+</Accordion>
+
+<Accordion title="How do I handle multiple Results at once?">
+
+Use `Result.combine` or `Result.combineWithAllErrors`:
+
+**`combine` (short-circuits on first error):**
+```typescript
+const results = [
+  ok(1),
+  ok(2),
+  ok(3)
+]
+
+const combined = Result.combine(results)
+// Result<number[], never> containing [1, 2, 3]
+```
+
+**`combineWithAllErrors` (collects all errors):**
+```typescript
+const results = [
+  ok(1),
+  err('error 1'),
+  ok(3),
+  err('error 2')
+]
+
+const combined = Result.combineWithAllErrors(results)
+// Err(['error 1', 'error 2'])
+```
+
+</Accordion>
+
+<Accordion title="What is safeTry and when should I use it?">
+
+`safeTry` reduces boilerplate when working with multiple Results in sequence. It uses generator functions to implicitly return early on errors:
+
+**Without safeTry:**
+```typescript
+function process(): Result<number, string> {
+  const result1 = step1()
+  if (result1.isErr()) return result1
+  
+  const result2 = step2(result1.value)
+  if (result2.isErr()) return result2
+  
+  return ok(result2.value * 2)
+}
+```
+
+**With safeTry:**
+```typescript
+function process(): ResultAsync<number, string> {
+  return safeTry<number, string>(function*() {
+    const value1 = yield* step1()
+    const value2 = yield* step2(value1)
+    return ok(value2 * 2)
+  })
+}
+```
+
+As of v8.1.0, you don't need to call `.safeUnwrap()` anymore.
+
+</Accordion>
+
+## Advanced Patterns
+
+<Accordion title="How do I perform side effects without affecting the Result?">
+
+Use `andTee` for Ok values or `orTee` for Err values:
+
+**Logging success without changing the Result:**
+```typescript
+processUser(data)
+  .andTee(user => logger.info('User processed', user))
+  .andThen(saveToDatabase)
+```
+
+**Logging errors without changing the Result:**
+```typescript
+processUser(data)
+  .orTee(error => logger.error('Processing failed', error))
+  .andThen(saveToDatabase)
+```
+
+Both methods let the original Result pass through regardless of the callback's result.
+
+</Accordion>
+
+<Accordion title="What's the difference between andTee and andThrough?">
+
+**`andTee`**: Side effects, errors are ignored:
+```typescript
+processUser(data)
+  .andTee(logUser)  // If logUser fails, error is ignored
+  .andThen(saveUser)
+// Result type: Result<Saved, ProcessError | SaveError>
+// Note: No LogError in the type
+```
+
+**`andThrough`**: Validation, errors propagate:
+```typescript
+processUser(data)
+  .andThrough(validateUser)  // If validation fails, error propagates
+  .andThen(saveUser)
+// Result type: Result<Saved, ProcessError | ValidationError | SaveError>
+// Note: ValidationError IS in the type
+```
+
+</Accordion>
+
+<Accordion title="How do I transition between sync and async Results?">
+
+Use `asyncAndThen` or `asyncMap`:
+
+```typescript
+import { Result, ResultAsync } from 'neverthrow'
+
+function validateSync(data: unknown): Result<Input, ValidationError> {
+  // Synchronous validation
+}
+
+function saveAsync(input: Input): ResultAsync<Saved, DbError> {
+  // Async database save
+}
+
+// Sync to async
+const result: ResultAsync<Saved, ValidationError | DbError> = 
+  validateSync(data).asyncAndThen(saveAsync)
+
+// Or with asyncMap
+const result2: ResultAsync<Data, ValidationError> = 
+  validateSync(data).asyncMap(async (input) => {
+    return await someAsyncOperation(input)
+  })
+```
+
+</Accordion>
+
+<Accordion title="Can I use NeverThrow with existing Promise-based code?">
+
+Yes! Use `ResultAsync.fromPromise`:
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+// Convert existing promise
+const result = ResultAsync.fromPromise(
+  fetch('/api/data').then(r => r.json()),
+  (error) => ({ type: 'network', error })
+)
+
+// Chain with other Results
+result
+  .andThen(validateData)
+  .andThen(processData)
+  .match(
+    (data) => console.log('Success:', data),
+    (error) => console.error('Failed:', error)
+  )
+```
+
+</Accordion>
+
+## Testing
+
+<Accordion title="How do I test functions that return Results?">
+
+You have several options:
+
+**Option 1: Use `_unsafeUnwrap` (recommended for tests):**
+```typescript
+import { expect, test } from 'vitest'
+
+test('should parse valid input', () => {
+  const result = parseInput('valid')
+  expect(result._unsafeUnwrap()).toBe('parsed')
+})
+```
+
+**Option 2: Compare Results directly:**
+```typescript
+test('should return ok result', () => {
+  const result = parseInput('valid')
+  expect(result).toEqual(ok('parsed'))
+})
+```
+
+**Option 3: Check properties:**
+```typescript
+test('should fail on invalid input', () => {
+  const result = parseInput('invalid')
+  expect(result.isErr()).toBe(true)
+  if (result.isErr()) {
+    expect(result.error).toBe('Invalid input')
+  }
+})
+```
+
+</Accordion>
+
+<Accordion title="Should I enable the ESLint plugin in test files?">
+
+It's recommended to use a more lenient setting for test files since `_unsafeUnwrap` is legitimate in tests:
+
+```javascript
+// eslint.config.js
+export default [
+  {
+    files: ['src/**/*.ts'],
+    rules: {
+      'neverthrow/must-use-result': 'error'
+    }
+  },
+  {
+    files: ['**/*.test.ts', '**/*.spec.ts'],
+    rules: {
+      'neverthrow/must-use-result': 'warn'  // More lenient
+    }
+  }
+]
+```
+
+</Accordion>
+
+## Migration and Integration
+
+<Accordion title="How do I migrate an existing codebase to use NeverThrow?">
+
+Migrate incrementally:
+
+1. **Start with new code**: Write all new functions using Results
+2. **Wrap throwing functions**: Use `Result.fromThrowable` for existing functions
+3. **Update critical paths**: Convert error-prone code paths first
+4. **Add ESLint plugin**: Enforce Result handling in new code
+5. **Gradually refactor**: Convert remaining code over time
+
+**Example bridge function:**
+```typescript
+// Old throwing function
+function oldFunction(): User {
+  throw new Error('Not found')
+}
+
+// Bridge to Result
+function newFunction(): Result<User, Error> {
+  return Result.fromThrowable(oldFunction, (e) => e as Error)()
+}
+```
+
+</Accordion>
+
+<Accordion title="Can I use NeverThrow with Express/Fastify/other frameworks?">
+
+Yes! Results work great with web frameworks:
+
+```typescript
+import { Request, Response } from 'express'
+import { getUserById } from './services'
+
+app.get('/users/:id', async (req: Request, res: Response) => {
+  const result = await getUserById(req.params.id)
+  
+  result.match(
+    (user) => res.json(user),
+    (error) => {
+      if (error.type === 'NotFound') {
+        res.status(404).json({ error: 'User not found' })
+      } else {
+        res.status(500).json({ error: 'Internal error' })
+      }
+    }
+  )
+})
+```
+
+</Accordion>
+
+<Accordion title="What about using Results with React/Vue/other UI frameworks?">
+
+Results work well with UI frameworks:
+
+**React example:**
+```typescript
+import { useState, useEffect } from 'react'
+import { Result } from 'neverthrow'
+import { fetchUser } from './api'
+
+function UserProfile({ userId }: { userId: string }) {
+  const [result, setResult] = useState<Result<User, Error> | null>(null)
+  
+  useEffect(() => {
+    fetchUser(userId).then(setResult)
+  }, [userId])
+  
+  if (!result) return <div>Loading...</div>
+  
+  return result.match(
+    (user) => <div>Hello, {user.name}!</div>,
+    (error) => <div>Error: {error.message}</div>
+  )
+}
+```
+
+</Accordion>
+
+## Troubleshooting
+
+<Accordion title="Why am I getting 'cannot find module neverthrow' errors?">
+
+Make sure you've installed the package:
+
+```bash
+npm install neverthrow
+```
+
+And that your TypeScript configuration includes the correct module resolution:
+
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "moduleResolution": "node",
+    "esModuleInterop": true
+  }
+}
+```
+
+</Accordion>
+
+<Accordion title="Type inference isn't working correctly. What should I do?">
+
+Most type issues can be resolved by:
+
+1. **Updating TypeScript**: NeverThrow requires TypeScript 4.7+
+2. **Checking return types**: Ensure functions explicitly return `Result<T, E>`
+3. **Using explicit type annotations** when needed:
+
+```typescript
+// Explicit return type helps inference
+function process(): Result<number, string> {
+  return ok(42)
+}
+
+// Explicit error type when needed
+const result: Result<number, string> = condition ? ok(1) : err('error')
+```
+
+</Accordion>
+
+<Accordion title="Where can I get help or report issues?">
+
+- **GitHub Issues**: [Report bugs or request features](https://github.com/supermacro/neverthrow/issues)
+- **GitHub Discussions**: [Ask questions and share ideas](https://github.com/supermacro/neverthrow/discussions)
+- **Wiki**: [Check the wiki for guides](https://github.com/supermacro/neverthrow/wiki)
+- **Stack Overflow**: Tag questions with `neverthrow`
+
+</Accordion>
+
+## Additional Resources
+
+- [Migration Guide](/resources/migration-guide) - Upgrade between versions
+- [TypeScript Tips](/resources/typescript-tips) - Advanced TypeScript patterns
+- [ESLint Plugin](/resources/eslint-plugin) - Enforce proper Result handling
+- [GitHub Repository](https://github.com/supermacro/neverthrow) - Source code and examples

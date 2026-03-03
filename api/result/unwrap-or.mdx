@@ -1,0 +1,242 @@
+---
+title: Result.unwrapOr()
+description: Extract the Ok value or return a default value if Err
+---
+
+## Overview
+
+Unwraps the `Ok` value, or returns the provided default value if the Result is an `Err`. This is a safe way to extract values from a Result without throwing exceptions.
+
+## Signature
+
+```typescript
+class Result<T, E> {
+  unwrapOr<A>(v: A): T | A
+}
+```
+
+## Parameters
+
+<ParamField path="v" type="A" required>
+  The default value to return if the Result is an Err. This can be a different type than T.
+</ParamField>
+
+## Returns
+
+Returns `T | A` where:
+- If the Result is `Ok(value)`, returns `value` (type T)
+- If the Result is `Err(error)`, returns `v` (type A)
+
+## Examples
+
+### Basic Usage
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const okVal = ok(12)
+const value = okVal.unwrapOr(1)
+// value is 12
+
+const errVal = err<number, string>('Oh nooo')
+const defaultValue = errVal.unwrapOr(1)
+// defaultValue is 1
+```
+
+### With Transformations
+
+```typescript
+const myResult = err('Oh noooo')
+
+const multiply = (value: number): number => value * 2
+
+const unwrapped: number = myResult
+  .map(multiply)
+  .unwrapOr(10)
+// unwrapped is 10 (map was skipped because of err)
+```
+
+### Chaining Operations
+
+```typescript
+function divide(a: number, b: number): Result<number, string> {
+  if (b === 0) {
+    return err('Cannot divide by zero')
+  }
+  return ok(a / b)
+}
+
+const result = divide(10, 2)
+  .map((n) => n * 100)
+  .unwrapOr(0)
+// result is 500
+
+const errorCase = divide(10, 0)
+  .map((n) => n * 100)
+  .unwrapOr(0)
+// errorCase is 0
+```
+
+### Different Default Types
+
+```typescript
+type User = { name: string; age: number }
+type GuestUser = { name: 'Guest'; isGuest: true }
+
+function getUser(id: string): Result<User, string> {
+  // ...
+}
+
+const user: User | GuestUser = getUser('123').unwrapOr({
+  name: 'Guest',
+  isGuest: true
+})
+```
+
+### With Configuration
+
+```typescript
+type Config = {
+  port: number
+  host: string
+  debug: boolean
+}
+
+const DEFAULT_CONFIG: Config = {
+  port: 3000,
+  host: 'localhost',
+  debug: false
+}
+
+function loadConfig(): Result<Config, Error> {
+  // Try to load config from file
+}
+
+const config = loadConfig().unwrapOr(DEFAULT_CONFIG)
+// Always get a valid config
+```
+
+### Form Input Parsing
+
+```typescript
+function parseNumber(input: string): Result<number, string> {
+  const num = parseInt(input, 10)
+  return isNaN(num) ? err('Invalid number') : ok(num)
+}
+
+const userInput = '42'
+const quantity = parseNumber(userInput).unwrapOr(1)
+// quantity is 42
+
+const badInput = 'not a number'
+const defaultQuantity = parseNumber(badInput).unwrapOr(1)
+// defaultQuantity is 1
+```
+
+### API Response Handling
+
+```typescript
+type ApiResponse = { data: string[]; total: number }
+
+function fetchData(): Result<ApiResponse, Error> {
+  // ... API call
+}
+
+const emptyResponse: ApiResponse = {
+  data: [],
+  total: 0
+}
+
+const response = fetchData().unwrapOr(emptyResponse)
+// Always have a valid response to work with
+```
+
+### Safe Array Access
+
+```typescript
+function getArrayItem<T>(
+  arr: T[],
+  index: number
+): Result<T, string> {
+  return index >= 0 && index < arr.length
+    ? ok(arr[index])
+    : err('Index out of bounds')
+}
+
+const items = [10, 20, 30]
+const value = getArrayItem(items, 5).unwrapOr(-1)
+// value is -1
+```
+
+### Equivalent to match
+
+```typescript
+// These are equivalent:
+const result1 = computation().unwrapOr('default')
+
+const result2 = computation().match(
+  (value) => value,
+  () => 'default'
+)
+// Same result, but match is more flexible
+```
+
+### Real-World Database Query
+
+```typescript
+type User = { id: string; name: string; email: string }
+
+const ANONYMOUS_USER: User = {
+  id: '0',
+  name: 'Anonymous',
+  email: 'anonymous@example.com'
+}
+
+function findUserById(id: string): Result<User, DatabaseError> {
+  // ... database query
+}
+
+const user = findUserById('123').unwrapOr(ANONYMOUS_USER)
+// Always have a user object to work with
+```
+
+## Implementation Details
+
+From the source code (result.ts:388-390):
+
+```typescript
+unwrapOr<A>(_v: A): T | A {
+  return this.value
+}
+```
+
+For `Err` (result.ts:488-490):
+
+```typescript
+unwrapOr<A>(v: A): T | A {
+  return v
+}
+```
+
+## Notes
+
+- The default value is only used if the Result is an Err
+- The default value is returned as-is, it's not wrapped in a Result
+- Unlike `._unsafeUnwrap()`, this never throws an exception
+- Can be combined with `.map()` to transform before unwrapping
+- The default value can be a different type than the Ok value
+- More restrictive than [match()](/api/result/match) since you can't access the error value
+
+## Use Cases
+
+- Providing fallback values for failed operations
+- Setting defaults for configuration loading
+- Ensuring non-null values in UI rendering
+- Safe parsing with sensible defaults
+- Converting Results to plain values for compatibility
+
+## Related
+
+- [Result.match()](/api/result/match) - Handle both Ok and Err with full control
+- [Result.map()](/api/result/map) - Transform before unwrapping
+- [Result.orElse()](/api/result/or-else) - Recover with another Result

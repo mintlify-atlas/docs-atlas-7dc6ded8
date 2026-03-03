@@ -1,0 +1,125 @@
+---
+title: ResultAsync through methods
+description: Perform operations that preserve the value but can introduce errors
+---
+
+## Overview
+
+The `andThrough` method allows you to perform an operation on the Ok value that may fail, while preserving the original value if successful. Unlike `andTee`, errors from the operation are propagated.
+
+## Signature
+
+```typescript
+class ResultAsync<T, E> {
+  andThrough<F>(
+    f: (t: T) => Result<unknown, F> | ResultAsync<unknown, F>
+  ): ResultAsync<T, E | F>
+}
+```
+
+<ParamField path="f" type="(t: T) => Result<unknown, F> | ResultAsync<unknown, F>" required>
+  Function that takes the Ok value and returns a Result or ResultAsync. The return value is ignored if Ok.
+</ParamField>
+
+**Returns:** `ResultAsync<T, E | F>` - Original value if both succeed, or error from either operation
+
+## Usage
+
+### Validation without transformation
+
+```typescript
+const result = await fetchUser(id)
+  .andThrough(user => {
+    if (user.age < 18) {
+      return err('User must be 18 or older')
+    }
+    return ok(undefined)
+  })
+  .andThen(saveUser)
+
+// Type: ResultAsync<User, FetchError | string | SaveError>
+// Value is still User, not undefined
+```
+
+### Multi-step validation
+
+```typescript
+const processOrder = (order: Order) => {
+  return okAsync(order)
+    .andThrough(validatePaymentMethod)
+    .andThrough(checkInventory)
+    .andThrough(verifyAddress)
+    .andThen(submitOrder)
+}
+
+// Each validation can fail, but order is preserved through the chain
+```
+
+### Side effects that must succeed
+
+```typescript
+const result = await createUser(data)
+  .andThrough(async user => {
+    // Send welcome email - must succeed
+    return ResultAsync.fromPromise(
+      sendEmail(user.email, 'Welcome!'),
+      (e) => new Error('Failed to send welcome email')
+    )
+  })
+  .andThen(user => okAsync(user.id))
+
+// If email fails, whole chain fails
+// If email succeeds, user object continues through chain
+```
+
+## Key characteristics
+
+<Note>
+  `andThrough` preserves the original value, unlike `andThen` which uses the returned value.
+</Note>
+
+- **Value preservation**: The Ok value passes through unchanged
+- **Error propagation**: Errors from the through function stop the chain
+- **Type addition**: Error type is added to the union
+
+## Comparison: andTee vs andThrough
+
+| Feature | andTee | andThrough |
+|---------|--------|------------|
+| Preserves value | ✅ Yes | ✅ Yes |
+| Errors ignored | ✅ Yes | ❌ No |
+| Can introduce errors | ❌ No | ✅ Yes |
+| Use for | Logging, metrics | Validation, required side effects |
+
+```typescript
+// andTee - logging that can't fail the operation
+const teeResult = await okAsync(user)
+  .andTee(user => logToAnalytics(user))  // Log error ignored
+  .andThen(saveUser)
+// Type: ResultAsync<User, SaveError>
+
+// andThrough - validation that can fail the operation
+const throughResult = await okAsync(user)
+  .andThrough(user => validateUser(user))  // Validation error propagates
+  .andThen(saveUser)
+// Type: ResultAsync<User, ValidationError | SaveError>
+```
+
+## When to use
+
+- ✅ Validations that don't transform the value
+- ✅ Critical side effects (sending emails, creating audit logs)
+- ✅ Pre-conditions that must be checked
+- ❌ Optional side effects → use `andTee` instead
+- ❌ Transformations → use `map` or `andThen` instead
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="tee-methods" icon="eye" href="./tee-methods">
+    Side effects that never fail
+  </Card>
+  <Card title="andThen" icon="link" href="./and-then">
+    Chain operations that transform the value
+  </Card>
+</CardGroup>

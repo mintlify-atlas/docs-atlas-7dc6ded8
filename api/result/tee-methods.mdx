@@ -1,0 +1,319 @@
+---
+title: Result.andTee() & Result.orTee()
+description: Execute side effects without affecting the Result value
+---
+
+## Overview
+
+The "tee" methods allow you to execute side effects (like logging or metrics) while passing the original Result through unchanged. Errors in the side effect function are caught and ignored, ensuring your main logic continues unaffected.
+
+## andTee() - Ok Path Side Effects
+
+### Signature
+
+```typescript
+class Result<T, E> {
+  andTee(f: (t: T) => unknown): Result<T, E>
+}
+```
+
+### Parameters
+
+<ParamField path="f" type="(t: T) => unknown" required>
+  A side effect function that receives the Ok value. The return value is ignored. Only called if the Result is Ok.
+</ParamField>
+
+### Returns
+
+Returns the original `Result<T, E>` unchanged:
+- If the Result is `Ok(value)`, executes `f(value)` and returns the original `Ok(value)`
+- If the Result is `Err(error)`, returns `Err(error)` without calling `f`
+- Errors thrown by `f` are caught and ignored
+
+## orTee() - Err Path Side Effects
+
+### Signature
+
+```typescript
+class Result<T, E> {
+  orTee(f: (e: E) => unknown): Result<T, E>
+}
+```
+
+### Parameters
+
+<ParamField path="f" type="(e: E) => unknown" required>
+  A side effect function that receives the Err value. The return value is ignored. Only called if the Result is Err.
+</ParamField>
+
+### Returns
+
+Returns the original `Result<T, E>` unchanged:
+- If the Result is `Err(error)`, executes `f(error)` and returns the original `Err(error)`
+- If the Result is `Ok(value)`, returns `Ok(value)` without calling `f`
+- Errors thrown by `f` are caught and ignored
+
+## Examples
+
+### Basic andTee Usage
+
+```typescript
+import { ok } from 'neverthrow'
+
+const result = ok(12)
+  .andTee((value) => {
+    console.log('Value:', value)
+  })
+  .map((n) => n * 2)
+
+result._unsafeUnwrap() // 24
+// Console: 'Value: 12'
+```
+
+### Basic orTee Usage
+
+```typescript
+import { err } from 'neverthrow'
+
+const result = err('Failed')
+  .orTee((error) => {
+    console.error('Error occurred:', error)
+  })
+  .mapErr((e) => e.toUpperCase())
+
+result._unsafeUnwrapErr() // 'FAILED'
+// Console: 'Error occurred: Failed'
+```
+
+### Logging Pipeline
+
+```typescript
+import { parseUserInput } from 'imaginary-parser'
+import { logUser } from 'imaginary-logger'
+import { insertUser } from 'imaginary-database'
+
+// Signatures:
+// parseUserInput(input: RequestData): Result<User, ParseError>
+// logUser(user: User): Result<void, LogError>
+// insertUser(user: User): ResultAsync<void, InsertError>
+
+const result = parseUserInput(userInput)
+  .andTee(logUser)  // Log successful parse, but don't fail if logging fails
+  .asyncAndThen(insertUser)
+
+// Note: LogError does NOT appear in the final error type
+await result.match(
+  () => console.log('User parsed and inserted'),
+  (error) => console.error('Failed:', error)
+  // error is ParseError | InsertError (no LogError)
+)
+```
+
+### Error Logging
+
+```typescript
+import { parseUserInput } from 'imaginary-parser'
+import { logParseError } from 'imaginary-logger'
+import { insertUser } from 'imaginary-database'
+
+// Signatures:
+// parseUserInput(input: RequestData): Result<User, ParseError>
+// logParseError(error: ParseError): Result<void, LogError>
+// insertUser(user: User): ResultAsync<void, InsertError>
+
+const result = parseUserInput(userInput)
+  .orTee(logParseError)  // Log parse errors, but don't add LogError to type
+  .asyncAndThen(insertUser)
+
+await result.match(
+  () => console.log('Success'),
+  (error) => console.error('Failed:', error)
+  // error is ParseError | InsertError (no LogError)
+)
+```
+
+### Metrics Collection
+
+```typescript
+function processOrder(order: Order): Result<Receipt, OrderError> {
+  return validateOrder(order)
+    .andTee((validOrder) => {
+      // Track successful validations
+      metrics.increment('orders.validated')
+    })
+    .andThen(calculateTotal)
+    .andTee((total) => {
+      // Track order values
+      metrics.gauge('orders.total', total)
+    })
+    .andThen(chargePayment)
+    .orTee((error) => {
+      // Track errors
+      metrics.increment(`orders.errors.${error.type}`)
+    })
+}
+```
+
+### Resilient Side Effects
+
+```typescript
+const result = ok(12)
+  .andTee((value) => {
+    // Even if this throws, the original Ok(12) is returned
+    throw new Error('Logging failed!')
+  })
+  .map((n) => n * 2)
+
+result.isOk() // true
+result._unsafeUnwrap() // 24
+// The error was caught and ignored
+```
+
+### Multiple Tees in Pipeline
+
+```typescript
+type User = { id: string; name: string; email: string }
+
+function createUser(data: UserData): Result<User, CreateError> {
+  return validateUserData(data)
+    .andTee((validData) => {
+      logger.debug('Validation passed', validData)
+    })
+    .andThen(saveToDatabase)
+    .andTee((user) => {
+      logger.info('User created', user.id)
+      analytics.track('user.created', user)
+    })
+    .andThen(sendWelcomeEmail)
+    .orTee((error) => {
+      logger.error('User creation failed', error)
+      alerting.notify('CreateUserFailed', error)
+    })
+}
+```
+
+### Debug Logging
+
+```typescript
+const result = fetchData()
+  .andTee((data) => {
+    if (process.env.DEBUG) {
+      console.log('Data fetched:', JSON.stringify(data, null, 2))
+    }
+  })
+  .map(transformData)
+  .andTee((transformed) => {
+    if (process.env.DEBUG) {
+      console.log('Data transformed:', transformed)
+    }
+  })
+```
+
+### Audit Trail
+
+```typescript
+type AuditLog = {
+  userId: string
+  action: string
+  timestamp: Date
+  result: 'success' | 'failure'
+}
+
+function auditLog(log: AuditLog): void {
+  // Write to audit log (fire and forget)
+  auditService.log(log)
+}
+
+const result = updateUserProfile(userId, updates)
+  .andTee((updatedUser) => {
+    auditLog({
+      userId,
+      action: 'profile.update',
+      timestamp: new Date(),
+      result: 'success'
+    })
+  })
+  .orTee((error) => {
+    auditLog({
+      userId,
+      action: 'profile.update',
+      timestamp: new Date(),
+      result: 'failure'
+    })
+  })
+```
+
+## Implementation Details
+
+### andTee for Ok (result.ts:348-355)
+
+```typescript
+andTee(f: (t: T) => unknown): Result<T, E> {
+  try {
+    f(this.value)
+  } catch (e) {
+    // Tee doesn't care about the error
+  }
+  return ok<T, E>(this.value)
+}
+```
+
+### andTee for Err (result.ts:443-445)
+
+```typescript
+andTee(_f: (t: T) => unknown): Result<T, E> {
+  return err(this.error)
+}
+```
+
+### orTee for Ok (result.ts:357-359)
+
+```typescript
+orTee(_f: (t: E) => unknown): Result<T, E> {
+  return ok<T, E>(this.value)
+}
+```
+
+### orTee for Err (result.ts:447-454)
+
+```typescript
+orTee(f: (t: E) => unknown): Result<T, E> {
+  try {
+    f(this.error)
+  } catch (e) {
+    // Tee doesn't care about the error
+  }
+  return err<T, E>(this.error)
+}
+```
+
+## Key Characteristics
+
+1. **Original value preserved**: The Result passes through unchanged
+2. **Errors are swallowed**: Exceptions in the side effect are caught and ignored
+3. **Return value ignored**: Whatever the function returns is discarded
+4. **No type changes**: Error types don't accumulate from side effects
+5. **Safe for logging**: Perfect for logging, metrics, debugging
+
+## Differences from andThrough/asyncAndThrough
+
+Unlike [andThrough()](/api/result/through-methods), the "tee" methods:
+- Ignore the return value of the side effect function
+- Catch and ignore exceptions
+- Don't add error types to the Result
+- Are meant purely for side effects that should never fail the main computation
+
+## Use Cases
+
+- **Logging**: Debug or production logging without affecting the pipeline
+- **Metrics**: Collect analytics and performance metrics
+- **Debugging**: Inspect values during development
+- **Audit trails**: Record operations without coupling to audit system failures
+- **Notifications**: Send alerts without blocking main logic
+- **Caching**: Populate caches as a side effect
+
+## Related
+
+- [Result.andThrough()](/api/result/through-methods) - Side effects that can fail
+- [Result.map()](/api/result/map) - Transform Ok values
+- [Result.andThen()](/api/result/and-then) - Chain operations

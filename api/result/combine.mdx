@@ -1,0 +1,369 @@
+---
+title: Result.combine() & Result.combineWithAllErrors()
+description: Combine multiple Results into a single Result
+---
+
+## Overview
+
+Static methods on the Result namespace that combine lists of Results into a single Result. Similar to `Promise.all()`, but for Results. The `combine` variant short-circuits on the first error, while `combineWithAllErrors` collects all errors.
+
+## Result.combine()
+
+### Signature
+
+```typescript
+// Heterogeneous lists (tuples)
+Result.combine<T extends readonly [Result<unknown, unknown>, ...Result<unknown, unknown>[]]>(
+  resultList: T
+): CombineResults<T>
+
+// Homogeneous lists (arrays)
+Result.combine<T extends readonly Result<unknown, unknown>[]>(
+  resultList: T
+): CombineResults<T>
+
+// Simplified types:
+// Result.combine(Result<T, E>[]): Result<T[], E>
+// Result.combine([Result<T1, E1>, Result<T2, E2>]): Result<[T1, T2], E1 | E2>
+```
+
+### Parameters
+
+<ParamField path="resultList" type="Result<T, E>[] | [Result<T1, E1>, ...]" required>
+  An array or tuple of Results to combine. Can be homogeneous (all same type) or heterogeneous (different types).
+</ParamField>
+
+### Returns
+
+- If all Results are `Ok`, returns `Ok` containing an array/tuple of all Ok values
+- If any Result is `Err`, returns the **first** `Err` encountered (short-circuits)
+- Preserves tuple types for heterogeneous lists
+
+## Result.combineWithAllErrors()
+
+### Signature
+
+```typescript
+// Heterogeneous lists (tuples)
+Result.combineWithAllErrors<T extends readonly [Result<unknown, unknown>, ...Result<unknown, unknown>[]]>(
+  resultList: T
+): CombineResultsWithAllErrorsArray<T>
+
+// Homogeneous lists (arrays)  
+Result.combineWithAllErrors<T extends readonly Result<unknown, unknown>[]>(
+  resultList: T
+): CombineResultsWithAllErrorsArray<T>
+
+// Simplified types:
+// Result.combineWithAllErrors(Result<T, E>[]): Result<T[], E[]>
+// Result.combineWithAllErrors([Result<T1, E1>, Result<T2, E2>]): Result<[T1, T2], (E1 | E2)[]>
+```
+
+### Parameters
+
+<ParamField path="resultList" type="Result<T, E>[] | [Result<T1, E1>, ...]" required>
+  An array or tuple of Results to combine.
+</ParamField>
+
+### Returns
+
+- If all Results are `Ok`, returns `Ok` containing an array/tuple of all Ok values
+- If any Results are `Err`, returns `Err` containing an **array of all errors**
+- Does not short-circuit - evaluates all Results
+
+## Examples
+
+### Basic combine - Homogeneous List
+
+```typescript
+import { ok, err, Result } from 'neverthrow'
+
+const resultList: Result<number, never>[] = [
+  ok(1),
+  ok(2),
+  ok(3)
+]
+
+const combined = Result.combine(resultList)
+// combined is Result<number[], never>
+
+combined.isOk() // true
+combined._unsafeUnwrap() // [1, 2, 3]
+```
+
+### combine with Error (Short-circuits)
+
+```typescript
+const resultList: Result<number, string>[] = [
+  ok(123),
+  err('boooom!'),
+  ok(456),
+  err('ahhhhh!')  // This is never evaluated
+]
+
+const combined = Result.combine(resultList)
+
+combined.isErr() // true
+combined._unsafeUnwrapErr() // 'boooom!' (first error only)
+```
+
+### Heterogeneous List (Tuple)
+
+```typescript
+type HeterogeneousList = [
+  Result<string, string>,
+  Result<number, number>,
+  Result<boolean, boolean>,
+]
+
+const heterogeneousList: HeterogeneousList = [
+  ok('Yooooo'),
+  ok(123),
+  ok(true)
+]
+
+type ExpectedResult = Result<
+  [string, number, boolean],
+  string | number | boolean
+>
+
+const combined: ExpectedResult = Result.combine(heterogeneousList)
+
+combined._unsafeUnwrap() // ['Yooooo', 123, true]
+```
+
+### combineWithAllErrors - Collects All Errors
+
+```typescript
+const resultList: Result<number, string>[] = [
+  ok(123),
+  err('boooom!'),
+  ok(456),
+  err('ahhhhh!')
+]
+
+const combined = Result.combineWithAllErrors(resultList)
+
+combined.isErr() // true
+combined._unsafeUnwrapErr() // ['boooom!', 'ahhhhh!'] (all errors)
+```
+
+### Validation with All Errors
+
+```typescript
+type ValidationError = { field: string; message: string }
+
+function validateEmail(email: string): Result<string, ValidationError> {
+  return email.includes('@')
+    ? ok(email)
+    : err({ field: 'email', message: 'Invalid email' })
+}
+
+function validatePassword(password: string): Result<string, ValidationError> {
+  return password.length >= 8
+    ? ok(password)
+    : err({ field: 'password', message: 'Too short' })
+}
+
+function validateAge(age: number): Result<number, ValidationError> {
+  return age >= 18
+    ? ok(age)
+    : err({ field: 'age', message: 'Must be 18+' })
+}
+
+const formValidation = Result.combineWithAllErrors([
+  validateEmail('invalid'),
+  validatePassword('short'),
+  validateAge(16)
+])
+
+if (formValidation.isErr()) {
+  const errors = formValidation.error
+  // errors is ValidationError[]
+  // [
+  //   { field: 'email', message: 'Invalid email' },
+  //   { field: 'password', message: 'Too short' },
+  //   { field: 'age', message: 'Must be 18+' }
+  // ]
+}
+```
+
+### Parallel Operations
+
+```typescript
+function fetchUser(id: string): Result<User, string> {
+  // ...
+}
+
+function fetchPosts(userId: string): Result<Post[], string> {
+  // ...
+}
+
+function fetchComments(userId: string): Result<Comment[], string> {
+  // ...
+}
+
+const userResult = fetchUser('123')
+const postsResult = fetchPosts('123')
+const commentsResult = fetchComments('123')
+
+const allData = Result.combine([
+  userResult,
+  postsResult,
+  commentsResult
+])
+
+allData.match(
+  ([user, posts, comments]) => {
+    // All data loaded successfully
+    console.log(`${user.name} has ${posts.length} posts`)
+  },
+  (error) => {
+    // At least one failed
+    console.error('Failed to load data:', error)
+  }
+)
+```
+
+### Array Processing
+
+```typescript
+function parseNumber(str: string): Result<number, string> {
+  const num = parseInt(str, 10)
+  return isNaN(num) ? err(`Invalid: ${str}`) : ok(num)
+}
+
+const inputs = ['1', '2', '3', '4', '5']
+const results = inputs.map(parseNumber)
+
+const combined = Result.combine(results)
+// combined is Result<number[], string>
+
+combined.match(
+  (numbers) => console.log('Sum:', numbers.reduce((a, b) => a + b)),
+  (error) => console.error('Parse error:', error)
+)
+```
+
+### Type Preservation
+
+```typescript
+// Arrays get concatenated into a flat array
+const homogenousList = [
+  ok(['hello', 'world']),
+  ok([1, 2, 3])
+]
+
+type Expected = Result<[string[], number[]], unknown>
+
+const result: Expected = Result.combine(homogenousList)
+
+result._unsafeUnwrap()
+// [['hello', 'world'], [1, 2, 3]]
+// Arrays are NOT destructured
+```
+
+### Real-World Multi-Step Validation
+
+```typescript
+type Order = {
+  items: Item[]
+  payment: PaymentInfo
+  shipping: ShippingAddress
+}
+
+function validateItems(items: Item[]): Result<Item[], string> {
+  return items.length > 0
+    ? ok(items)
+    : err('Cart is empty')
+}
+
+function validatePayment(
+  payment: PaymentInfo
+): Result<PaymentInfo, string> {
+  // ... validation
+}
+
+function validateShipping(
+  address: ShippingAddress
+): Result<ShippingAddress, string> {
+  // ... validation
+}
+
+function processOrder(order: Order): Result<Order, string[]> {
+  const validations = Result.combineWithAllErrors([
+    validateItems(order.items),
+    validatePayment(order.payment),
+    validateShipping(order.shipping)
+  ])
+
+  return validations.map(([items, payment, shipping]) => ({
+    items,
+    payment,
+    shipping
+  }))
+}
+
+processOrder(order).match(
+  (validOrder) => submitOrder(validOrder),
+  (errors) => showErrors(errors) // Show all validation errors
+)
+```
+
+### With Different Error Types
+
+```typescript
+type NetworkError = { type: 'network'; code: number }
+type ParseError = { type: 'parse'; message: string }
+type ValidationError = { type: 'validation'; field: string }
+
+const results = [
+  fetchData(),              // Result<Data, NetworkError>
+  parseResponse(),          // Result<Parsed, ParseError>
+  validateInput()           // Result<Valid, ValidationError>
+]
+
+const combined = Result.combineWithAllErrors(results)
+// combined is Result<
+//   [Data, Parsed, Valid],
+//   (NetworkError | ParseError | ValidationError)[]
+// >
+```
+
+## Implementation Details
+
+From the source code (result.ts:37-47):
+
+```typescript
+export function combine<
+  T extends readonly [Result<unknown, unknown>, ...Result<unknown, unknown>[]]
+>(resultList: T): CombineResults<T> {
+  return combineResultList(resultList) as CombineResults<T>
+}
+
+export function combineWithAllErrors<T extends readonly Result<unknown, unknown>[]>(
+  resultList: T
+): CombineResultsWithAllErrorsArray<T> {
+  return combineResultListWithAllErrors(resultList) as CombineResultsWithAllErrorsArray<T>
+}
+```
+
+## When to Use Which?
+
+### Use `combine` when:
+- You want to fail fast on the first error
+- Errors are blocking (no point continuing)
+- You need best performance (short-circuits)
+- Similar to `&&` operator behavior
+
+### Use `combineWithAllErrors` when:
+- You want to collect all errors
+- Useful for form validation (show all errors at once)
+- Non-blocking errors (all checks should run)
+- Better user experience (see all issues)
+
+## Related
+
+- [ResultAsync.combine()](/api/result-async/combine) - Async version
+- [ResultAsync.combineWithAllErrors()](/api/result-async/combine-with-all-errors) - Async version with all errors
+- [Result.andThen()](/api/result/and-then) - Sequential combining

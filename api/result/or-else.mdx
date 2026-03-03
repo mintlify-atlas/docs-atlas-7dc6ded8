@@ -1,0 +1,224 @@
+---
+title: Result.orElse()
+description: Recover from errors by mapping Err values to new Results
+---
+
+## Overview
+
+Takes an `Err` value and maps it to a `Result<T, SomeNewType>`. This is the error-handling counterpart to `andThen`, useful for error recovery and fallback logic.
+
+## Signature
+
+```typescript
+class Result<T, E> {
+  orElse<R extends Result<unknown, unknown>>(
+    f: (e: E) => R
+  ): Result<InferOkTypes<R> | T, InferErrTypes<R>>
+  
+  orElse<U, A>(f: (e: E) => Result<U, A>): Result<U | T, A>
+}
+```
+
+## Parameters
+
+<ParamField path="f" type="(e: E) => Result<U, A>" required>
+  A function that takes the Err value and returns a new Result. This function is only called if the current Result is Err.
+</ParamField>
+
+## Returns
+
+Returns a new `Result<T | U, A>` where:
+- If the original Result is `Ok(value)`, returns `Ok(value)` without calling `f`
+- If the original Result is `Err(error)`, returns the result of `f(error)`
+- The success type becomes a union of both possible success types
+
+## Examples
+
+### Basic Error Recovery
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const okVal = ok(12)
+const errorCallback = (errVal: string) => 
+  err<number, boolean>(true)
+
+okVal.orElse(errorCallback) // Ok(12)
+// errorCallback was never called
+
+const errVal = err('BOOOM!')
+errVal.orElse((e) => err(true)) // Err(true)
+```
+
+### Error Recovery with Fallback
+
+```typescript
+enum DatabaseError {
+  PoolExhausted = 'PoolExhausted',
+  NotFound = 'NotFound',
+}
+
+const dbQueryResult: Result<string, DatabaseError> = 
+  err(DatabaseError.NotFound)
+
+const updatedResult = dbQueryResult.orElse((dbError) =>
+  dbError === DatabaseError.NotFound
+    ? ok('User does not exist')  // Recovery: convert error to success
+    : err(500)                    // Convert to different error type
+)
+// updatedResult is Result<string, number>
+```
+
+### Multi-Level Fallbacks
+
+```typescript
+function fetchFromPrimaryDb(id: string): Result<User, 'PrimaryDbError'> {
+  // ...
+}
+
+function fetchFromSecondaryDb(id: string): Result<User, 'SecondaryDbError'> {
+  // ...
+}
+
+function fetchFromCache(id: string): Result<User, 'CacheError'> {
+  // ...
+}
+
+const user = fetchFromPrimaryDb('123')
+  .orElse(() => fetchFromSecondaryDb('123'))
+  .orElse(() => fetchFromCache('123'))
+  .orElse(() => ok(getDefaultUser()))
+// Tries each source in order until one succeeds
+```
+
+### Converting Errors to Success
+
+```typescript
+type NetworkError = { code: number; message: string }
+
+function fetchData(): Result<Data, NetworkError> {
+  // ... network request
+}
+
+const result = fetchData().orElse((error) => {
+  // Log the error for monitoring
+  console.error('Network error:', error)
+  
+  // Return cached data as success
+  return ok(getCachedData())
+})
+// result is Result<Data, never> - error is fully handled
+```
+
+### Selective Error Recovery
+
+```typescript
+type ApiError = 
+  | { type: 'NetworkError'; retryable: boolean }
+  | { type: 'ValidationError'; field: string }
+  | { type: 'AuthError'; reason: string }
+
+function callApi(): Result<Response, ApiError> {
+  // ...
+}
+
+const result = callApi().orElse((error) => {
+  // Only recover from network errors
+  if (error.type === 'NetworkError' && error.retryable) {
+    return callApi() // Retry
+  }
+  // Pass other errors through
+  return err(error)
+})
+```
+
+### Chaining Recovery Strategies
+
+```typescript
+enum PaymentError {
+  InsufficientFunds = 'InsufficientFunds',
+  CardDeclined = 'CardDeclined',
+  NetworkError = 'NetworkError',
+}
+
+function chargeCard(amount: number): Result<Receipt, PaymentError> {
+  // ...
+}
+
+function chargeSavedCard(amount: number): Result<Receipt, PaymentError> {
+  // ...
+}
+
+function chargeWallet(amount: number): Result<Receipt, PaymentError> {
+  // ...
+}
+
+const payment = chargeCard(100)
+  .orElse((error) => {
+    if (error === PaymentError.CardDeclined) {
+      return chargeSavedCard(100)
+    }
+    return err(error)
+  })
+  .orElse((error) => {
+    if (error === PaymentError.InsufficientFunds) {
+      return chargeWallet(100)
+    }
+    return err(error)
+  })
+```
+
+### Real-World Example
+
+```typescript
+function loadConfig(): Result<Config, 'FileNotFound'> {
+  // Try to load from file
+}
+
+function getDefaultConfig(): Result<Config, never> {
+  return ok({
+    port: 3000,
+    host: 'localhost',
+    // ... default values
+  })
+}
+
+const config = loadConfig()
+  .orElse((error) => {
+    console.warn('Config file not found, using defaults')
+    return getDefaultConfig()
+  })
+// config is Result<Config, never> - always succeeds
+```
+
+## Implementation Details
+
+From the source code (result.ts:470-472):
+
+```typescript
+orElse(f: any): any {
+  return f(this.error)
+}
+```
+
+For `Ok` (result.ts:366-368):
+
+```typescript
+orElse(_f: any): any {
+  return ok(this.value)
+}
+```
+
+## Notes
+
+- `orElse` operates on the error path, while `andThen` operates on the success path
+- Useful for implementing retry logic, fallbacks, and graceful degradation
+- The success type becomes a union of both possible success types
+- Can convert errors to successes for complete error recovery
+- For operations on Ok values, use [andThen()](/api/result/and-then)
+
+## Related
+
+- [Result.andThen()](/api/result/and-then) - Chain operations on the success path
+- [Result.mapErr()](/api/result/map-err) - Transform errors without changing to Ok
+- [Result.match()](/api/result/match) - Handle both Ok and Err cases

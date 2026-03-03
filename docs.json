@@ -1,122 +1,128 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "NeverThrow",
+  "theme": "palm",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#8B5CF6",
+    "light": "#A78BFA",
+    "dark": "#7C3AED"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/supermacro/neverthrow"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/supermacro/neverthrow"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Getting Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "installation",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/result-type",
+              "concepts/result-async",
+              "concepts/error-handling"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "guides/basic-usage",
+              "guides/chaining-operations",
+              "guides/async-operations",
+              "guides/combining-results",
+              "guides/error-recovery"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Result (Sync)",
             "pages": [
-              "api-reference/introduction"
+              "api/result/ok",
+              "api/result/err",
+              "api/result/map",
+              "api/result/map-err",
+              "api/result/and-then",
+              "api/result/or-else",
+              "api/result/match",
+              "api/result/unwrap-or",
+              "api/result/async-map",
+              "api/result/tee-methods",
+              "api/result/through-methods",
+              "api/result/combine",
+              "api/result/from-throwable"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "ResultAsync",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/result-async/ok-async",
+              "api/result-async/err-async",
+              "api/result-async/map",
+              "api/result-async/map-err",
+              "api/result-async/and-then",
+              "api/result-async/or-else",
+              "api/result-async/match",
+              "api/result-async/unwrap-or",
+              "api/result-async/tee-methods",
+              "api/result-async/through-methods",
+              "api/result-async/combine",
+              "api/result-async/from-promise",
+              "api/result-async/from-throwable"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/utilities/safe-try",
+              "api/utilities/from-throwable",
+              "api/utilities/from-async-throwable",
+              "api/utilities/from-promise",
+              "api/utilities/from-safe-promise"
+            ]
+          },
+          {
+            "group": "Testing",
+            "pages": [
+              "api/testing/unsafe-unwrap"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Additional Resources",
+            "pages": [
+              "resources/migration-guide",
+              "resources/typescript-tips",
+              "resources/eslint-plugin",
+              "resources/faq",
+              "resources/changelog"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

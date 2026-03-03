@@ -1,0 +1,335 @@
+---
+title: Result.andThrough() & Result.asyncAndThrough()
+description: Execute operations that preserve the original value but can fail
+---
+
+## Overview
+
+The "through" methods are similar to "tee" methods but with a key difference: they allow errors from the side operation to propagate. This is useful when you want to preserve the original value but need validation or persistence side effects that can fail.
+
+## andThrough() - Sync Through Operations
+
+### Signature
+
+```typescript
+class Result<T, E> {
+  andThrough<R extends Result<unknown, unknown>>(
+    f: (t: T) => R
+  ): Result<T, InferErrTypes<R> | E>
+  
+  andThrough<F>(f: (t: T) => Result<unknown, F>): Result<T, E | F>
+}
+```
+
+### Parameters
+
+<ParamField path="f" type="(t: T) => Result<unknown, F>" required>
+  A function that receives the Ok value and returns a Result. The Ok value of the returned Result is ignored, but errors are propagated.
+</ParamField>
+
+### Returns
+
+Returns a `Result<T, E | F>` where:
+- If the original Result is `Ok(value)` and `f(value)` returns `Ok(_)`, returns `Ok(value)` (original value preserved)
+- If the original Result is `Ok(value)` and `f(value)` returns `Err(error)`, returns `Err(error)`
+- If the original Result is `Err(error)`, returns `Err(error)` without calling `f`
+- Error types are accumulated as a union
+
+## asyncAndThrough() - Async Through Operations
+
+### Signature
+
+```typescript
+class Result<T, E> {
+  asyncAndThrough<R extends ResultAsync<unknown, unknown>>(
+    f: (t: T) => R
+  ): ResultAsync<T, InferAsyncErrTypes<R> | E>
+  
+  asyncAndThrough<F>(
+    f: (t: T) => ResultAsync<unknown, F>
+  ): ResultAsync<T, E | F>
+}
+```
+
+### Parameters
+
+<ParamField path="f" type="(t: T) => ResultAsync<unknown, F>" required>
+  An async function that receives the Ok value and returns a ResultAsync. The Ok value of the returned ResultAsync is ignored, but errors are propagated.
+</ParamField>
+
+### Returns
+
+Returns a `ResultAsync<T, E | F>` that resolves to:
+- If the original Result is `Ok(value)` and `f(value)` resolves to `Ok(_)`, resolves to `Ok(value)` (original value preserved)
+- If the original Result is `Ok(value)` and `f(value)` resolves to `Err(error)`, resolves to `Err(error)`
+- If the original Result is `Err(error)`, resolves to `Err(error)` without calling `f`
+
+## Examples
+
+### Basic andThrough Usage
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const result = ok(12)
+  .andThrough((value) => {
+    console.log('Validating:', value)
+    return ok(undefined)
+  })
+
+result.isOk() // true
+result._unsafeUnwrap() // 12 (original value preserved)
+```
+
+### Error Propagation
+
+```typescript
+const result = ok(12)
+  .andThrough((value) => {
+    if (value > 10) {
+      return err('Value too large')
+    }
+    return ok(undefined)
+  })
+
+result.isErr() // true
+result._unsafeUnwrapErr() // 'Value too large'
+```
+
+### Validation with Preserved Value
+
+```typescript
+import { parseUserInput } from 'imaginary-parser'
+import { validateUser } from 'imaginary-validator'
+import { insertUser } from 'imaginary-database'
+
+// Signatures:
+// parseUserInput(input: RequestData): Result<User, ParseError>
+// validateUser(user: User): Result<void, ValidationError>
+// insertUser(user: User): ResultAsync<void, InsertError>
+
+const result = parseUserInput(userInput)
+  .andThrough(validateUser)  // Validate but keep the User, not void
+  .asyncAndThen(insertUser)
+
+await result.match(
+  () => console.log('User parsed, validated, and inserted'),
+  (error) => console.error('Failed:', error)
+  // error is ParseError | ValidationError | InsertError
+)
+```
+
+### Database Persistence
+
+```typescript
+type User = { id: string; name: string; email: string }
+
+function buildUser(data: UserData): Result<User, BuildError> {
+  // ...
+}
+
+function saveUser(user: User): Result<void, DatabaseError> {
+  // Save to database
+}
+
+function notifyUser(user: User): Result<void, NotificationError> {
+  // Send notification
+}
+
+const user = buildUser(userData)
+  .andThrough(saveUser)      // Save but keep the User object
+  .andThrough(notifyUser)    // Notify but still keep the User object
+// user is Result<User, BuildError | DatabaseError | NotificationError>
+
+// Now we can use the User object
+user.map((u) => u.name)
+```
+
+### Async Database Validation
+
+```typescript
+import { parseUserInput } from 'imaginary-parser'
+import { insertUser } from 'imaginary-database'
+import { sendNotification } from 'imaginary-service'
+
+// Signatures:
+// parseUserInput(input: RequestData): Result<User, ParseError>
+// insertUser(user: User): ResultAsync<void, InsertError>
+// sendNotification(user: User): ResultAsync<void, NotificationError>
+
+const result = parseUserInput(userInput)
+  .asyncAndThrough(insertUser)     // Insert but keep User for notification
+  .andThen(sendNotification)       // Now send notification with the User
+
+await result.match(
+  () => console.log('User parsed, inserted and notified'),
+  (error) => console.error('Failed:', error)
+  // error is ParseError | InsertError | NotificationError
+)
+```
+
+### Multiple Validations
+
+```typescript
+type Order = { items: Item[]; total: number; customerId: string }
+
+function validateOrderItems(
+  order: Order
+): Result<void, 'InvalidItems'> {
+  // ...
+}
+
+function validateOrderTotal(
+  order: Order
+): Result<void, 'InvalidTotal'> {
+  // ...
+}
+
+function validateCustomer(
+  order: Order
+): Result<void, 'InvalidCustomer'> {
+  // ...
+}
+
+const validatedOrder = createOrder(data)
+  .andThrough(validateOrderItems)
+  .andThrough(validateOrderTotal)
+  .andThrough(validateCustomer)
+// validatedOrder is Result<Order, CreateError | 'InvalidItems' | 'InvalidTotal' | 'InvalidCustomer'>
+// Still have the Order object if all validations pass
+```
+
+### Real-World Example
+
+```typescript
+type Document = { id: string; content: string; metadata: Metadata }
+
+function parseDocument(raw: string): Result<Document, ParseError> {
+  // ...
+}
+
+function validateDocument(
+  doc: Document
+): Result<void, ValidationError> {
+  // ...
+}
+
+function saveDocument(
+  doc: Document  
+): ResultAsync<void, DatabaseError> {
+  // ...
+}
+
+function indexDocument(
+  doc: Document
+): ResultAsync<void, IndexError> {
+  // ...
+}
+
+const result = parseDocument(rawInput)
+  .andThrough(validateDocument)    // Validate but keep Document
+  .asyncAndThrough(saveDocument)   // Save but keep Document
+  .andThen(indexDocument)          // Finally index (we don't need Document after this)
+
+await result.match(
+  () => console.log('Document processed successfully'),
+  (error) => console.error('Processing failed:', error)
+)
+```
+
+### Difference from andTee
+
+```typescript
+// andTee: errors are swallowed
+const teeResult = ok(12)
+  .andTee((n) => {
+    throw new Error('This error is caught and ignored')
+  })
+teeResult.isOk() // true
+teeResult._unsafeUnwrap() // 12
+
+// andThrough: errors propagate
+const throughResult = ok(12)
+  .andThrough((n) => err('This error propagates'))
+throughResult.isErr() // true
+throughResult._unsafeUnwrapErr() // 'This error propagates'
+```
+
+### Chaining Pattern
+
+```typescript
+type ProcessedData = { id: string; value: number }
+
+const result = fetchRawData()
+  .map(parseData)                    // Transform to ProcessedData
+  .andThrough(validateData)          // Validate but keep ProcessedData
+  .asyncAndThrough(persistData)      // Save but keep ProcessedData
+  .asyncAndThrough(notifyWebhooks)   // Notify but keep ProcessedData
+  .map((data) => data.id)            // Finally extract just the ID
+// Result type: Result<string, FetchError | ParseError | ValidationError | PersistError | NotifyError>
+```
+
+## Implementation Details
+
+### andThrough for Ok (result.ts:341-346)
+
+```typescript
+andThrough(f: any): any {
+  return f(this.value).map((_value: unknown) => this.value)
+}
+```
+
+### andThrough for Err (result.ts:439-441)
+
+```typescript
+andThrough<F>(_f: (t: T) => Result<unknown, F>): Result<T, E | F> {
+  return err(this.error)
+}
+```
+
+### asyncAndThrough for Ok (result.ts:379-381)
+
+```typescript
+asyncAndThrough(f: (t: T) => ResultAsync<unknown, unknown>): any {
+  return f(this.value).map(() => this.value)
+}
+```
+
+### asyncAndThrough for Err (result.ts:479-481)
+
+```typescript
+asyncAndThrough<F>(_f: (t: T) => ResultAsync<unknown, F>): ResultAsync<T, E | F> {
+  return errAsync<T, E>(this.error)
+}
+```
+
+## Key Characteristics
+
+1. **Value preservation**: Original Ok value is passed through unchanged
+2. **Error propagation**: Errors from the through operation are propagated
+3. **Type accumulation**: Error types accumulate as union types
+4. **Return value ignored**: Only errors matter; Ok values from `f` are discarded
+5. **Validation focus**: Perfect for validations and side effects that can fail
+
+## Comparison: andTee vs andThrough
+
+| Feature | andTee | andThrough |
+|---------|--------|------------|
+| Original value | Preserved | Preserved |
+| Errors caught? | Yes (swallowed) | No (propagated) |
+| Error types | Not added | Added to union |
+| Use case | Safe side effects | Validations that can fail |
+
+## Use Cases
+
+- **Validation**: Validate data while preserving the original object
+- **Persistence**: Save to database but continue with the original data
+- **Conditional operations**: Operations that may fail but shouldn't transform the data
+- **Multi-step validation**: Chain multiple validations while keeping the original value
+- **Side effects with errors**: Unlike tee, errors actually matter
+
+## Related
+
+- [Result.andTee()](/api/result/tee-methods) - Side effects that never fail
+- [Result.andThen()](/api/result/and-then) - Chain with value transformation
+- [Result.map()](/api/result/map) - Transform Ok values

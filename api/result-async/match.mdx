@@ -1,0 +1,111 @@
+---
+title: ResultAsync.match
+description: Pattern match on a ResultAsync
+---
+
+## Overview
+
+Executes one of two functions depending on whether the `ResultAsync` is `Ok` or `Err`. Always returns a `Promise` that resolves to the result of the executed function.
+
+## Signature
+
+```typescript
+class ResultAsync<T, E> {
+  match<A, B = A>(
+    okCallback: (value: T) => A,
+    errorCallback: (error: E) => B
+  ): Promise<A | B>
+}
+```
+
+<ParamField path="okCallback" type="(value: T) => A" required>
+  Function to execute if the ResultAsync is Ok
+</ParamField>
+
+<ParamField path="errorCallback" type="(error: E) => B" required>
+  Function to execute if the ResultAsync is Err
+</ParamField>
+
+**Returns:** `Promise<A | B>` - A Promise resolving to the result of the executed callback
+
+## Usage
+
+### HTTP response handling
+
+```typescript
+const response = await fetchUser(id)
+  .andThen(validateUser)
+  .match(
+    (user) => ({ status: 200, body: user }),
+    (error) => ({ status: 400, body: { error: error.message } })
+  )
+
+// response is { status: number, body: unknown }
+```
+
+### Logging results
+
+```typescript
+const result = await processData(input).match(
+  (data) => {
+    console.log('Success:', data)
+    return data
+  },
+  (error) => {
+    console.error('Error:', error)
+    return null
+  }
+)
+```
+
+### Converting to traditional error handling
+
+```typescript
+try {
+  return await operation().match(
+    (value) => value,
+    (error) => { throw error }
+  )
+} catch (error) {
+  // Handle error in traditional way
+}
+```
+
+## Key characteristics
+
+<Note>
+  Unlike the sync `Result.match()`, `ResultAsync.match()` always returns a `Promise`, even if both callbacks are synchronous.
+</Note>
+
+- **Exhaustive**: Forces you to handle both Ok and Err cases
+- **Type unwrapping**: Extracts the value/error from the Result
+- **Returns Promise**: Always async, requires await or .then()
+
+## Comparison with sync Result
+
+```typescript
+// Sync Result.match returns value directly
+const syncValue = myResult.match(
+  (val) => val,
+  (err) => 'default'
+)
+// syncValue is string
+
+// Async ResultAsync.match returns Promise
+const asyncValue = await myResultAsync.match(
+  (val) => val,
+  (err) => 'default'
+)
+// asyncValue is string
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="unwrapOr" icon="gift" href="./unwrap-or">
+    Get value or default without error callback
+  </Card>
+  <Card title="Result.match" icon="code-branch" href="../result/match">
+    Synchronous version
+  </Card>
+</CardGroup>

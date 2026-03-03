@@ -1,0 +1,370 @@
+---
+title: ESLint Plugin
+description: Enforce proper Result handling with eslint-plugin-neverthrow
+---
+
+## ESLint Plugin for NeverThrow
+
+The `eslint-plugin-neverthrow` ensures that Result and ResultAsync values are properly handled in your codebase, preventing unhandled errors from slipping through.
+
+## Overview
+
+Created by [mdbetancourt](https://github.com/mdbetancourt) as part of NeverThrow's [bounty program](https://github.com/supermacro/neverthrow/issues/314), this ESLint plugin enforces that errors are not left unhandled.
+
+This plugin is essentially a porting of Rust's [`must-use`](https://doc.rust-lang.org/std/result/#results-must-be-used) attribute to TypeScript/JavaScript.
+
+## Installation
+
+Install the plugin via npm:
+
+```bash
+npm install eslint-plugin-neverthrow --save-dev
+```
+
+Or using other package managers:
+
+```bash
+# Yarn
+yarn add -D eslint-plugin-neverthrow
+
+# pnpm
+pnpm add -D eslint-plugin-neverthrow
+```
+
+## Configuration
+
+Add the plugin to your ESLint configuration file:
+
+### Using Flat Config (ESLint 9+)
+
+```javascript
+// eslint.config.js
+import neverthrow from 'eslint-plugin-neverthrow'
+
+export default [
+  {
+    plugins: {
+      neverthrow
+    },
+    rules: {
+      'neverthrow/must-use-result': 'error'
+    }
+  }
+]
+```
+
+### Using Legacy Config (.eslintrc)
+
+```json
+{
+  "plugins": ["neverthrow"],
+  "rules": {
+    "neverthrow/must-use-result": "error"
+  }
+}
+```
+
+## Rules
+
+### `must-use-result`
+
+This rule ensures that Result and ResultAsync values are consumed in one of the following ways:
+
+1. Calling `.match()`
+2. Calling `.unwrapOr()`
+3. Calling `._unsafeUnwrap()` (for test environments)
+
+This guarantees that you're explicitly handling the error case of your Result.
+
+## Valid Patterns
+
+The following patterns are considered valid:
+
+### Using `match`
+
+```typescript
+import { Result } from 'neverthrow'
+
+function getUser(id: string): Result<User, Error> {
+  // ...
+}
+
+// Valid: Using match to handle both cases
+getUser('123').match(
+  (user) => console.log('Success:', user),
+  (error) => console.error('Error:', error)
+)
+```
+
+### Using `unwrapOr`
+
+```typescript
+import { Result } from 'neverthrow'
+
+function parseNumber(str: string): Result<number, string> {
+  // ...
+}
+
+// Valid: Providing a default value
+const num = parseNumber('42').unwrapOr(0)
+```
+
+### Using `_unsafeUnwrap` in Tests
+
+```typescript
+import { expect, test } from 'vitest'
+import { parseUser } from './parser'
+
+test('parses valid user', () => {
+  const result = parseUser({ id: 1, name: 'Alice' })
+  
+  // Valid: Unsafe unwrap in test environment
+  expect(result._unsafeUnwrap()).toEqual({ id: 1, name: 'Alice' })
+})
+```
+
+### Chaining Operations
+
+```typescript
+// Valid: Final result is consumed
+getUser('123')
+  .map(user => user.name)
+  .mapErr(error => error.message)
+  .match(
+    (name) => console.log(name),
+    (msg) => console.error(msg)
+  )
+```
+
+## Invalid Patterns
+
+The following patterns will trigger ESLint errors:
+
+### Not Consuming the Result
+
+```typescript
+import { Result } from 'neverthrow'
+
+function getUser(id: string): Result<User, Error> {
+  // ...
+}
+
+// ❌ Invalid: Result is not consumed
+getUser('123')
+
+// ❌ Invalid: Mapped but final result not consumed
+getUser('123').map(user => user.name)
+```
+
+### Only Handling Success Case
+
+```typescript
+// ❌ Invalid: Only handles ok case with map
+getUser('123').map(user => {
+  console.log('User:', user)
+})
+// Must use .match() or .unwrapOr() to explicitly handle errors
+```
+
+### Ignoring Async Results
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+function fetchUser(id: string): ResultAsync<User, Error> {
+  // ...
+}
+
+// ❌ Invalid: ResultAsync not consumed
+fetchUser('123')
+
+// ❌ Invalid: Awaited but not consumed
+await fetchUser('123')
+```
+
+## Fixing Violations
+
+When the plugin reports a violation, you have three options to fix it:
+
+### Option 1: Use `match`
+
+Handle both success and error cases explicitly:
+
+```typescript
+getUser('123').match(
+  (user) => handleSuccess(user),
+  (error) => handleError(error)
+)
+```
+
+### Option 2: Use `unwrapOr`
+
+Provide a default value for the error case:
+
+```typescript
+const user = getUser('123').unwrapOr(null)
+if (user) {
+  // Use user
+}
+```
+
+### Option 3: Use `_unsafeUnwrap` (Tests Only)
+
+For test environments where you're confident about the result:
+
+```typescript
+test('should return user', () => {
+  const user = getUser('123')._unsafeUnwrap()
+  expect(user.id).toBe('123')
+})
+```
+
+<Warning>
+  `_unsafeUnwrap()` should **only** be used in test environments. It will throw if the Result is an Err.
+</Warning>
+
+## Integration with Type Checking
+
+The plugin works alongside TypeScript's type system to provide comprehensive safety:
+
+```typescript
+import { Result, ok, err } from 'neverthrow'
+
+function divide(a: number, b: number): Result<number, string> {
+  if (b === 0) {
+    return err('Division by zero')
+  }
+  return ok(a / b)
+}
+
+// TypeScript ensures correct types
+const result = divide(10, 2)
+  .map(x => x * 2)  // TypeScript knows x is number
+  .mapErr(e => `Error: ${e}`)  // TypeScript knows e is string
+  .match(
+    (value) => value,  // value: number
+    (error) => 0       // error: string
+  )
+```
+
+## Working with Async Code
+
+The plugin also validates ResultAsync handling:
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+async function processData(id: string): ResultAsync<Data, Error> {
+  // ...
+}
+
+// ✅ Valid: Properly consumed
+await processData('123').match(
+  (data) => console.log(data),
+  (error) => console.error(error)
+)
+
+// ✅ Valid: Chained and consumed
+await processData('123')
+  .andThen(transformData)
+  .map(formatData)
+  .match(
+    (result) => result,
+    (error) => null
+  )
+```
+
+## Configuration Options
+
+The plugin can be configured with different severity levels:
+
+```json
+{
+  "rules": {
+    "neverthrow/must-use-result": "error"  // Error on violation
+  }
+}
+```
+
+```json
+{
+  "rules": {
+    "neverthrow/must-use-result": "warn"  // Warning only
+  }
+}
+```
+
+```json
+{
+  "rules": {
+    "neverthrow/must-use-result": "off"  // Disabled
+  }
+}
+```
+
+## Best Practices
+
+### Enable in All Environments
+
+Enable the plugin in all environments except tests, where you might legitimately use `_unsafeUnwrap`:
+
+```javascript
+// eslint.config.js
+export default [
+  {
+    files: ['src/**/*.ts'],
+    rules: {
+      'neverthrow/must-use-result': 'error'
+    }
+  },
+  {
+    files: ['**/*.test.ts', '**/*.spec.ts'],
+    rules: {
+      'neverthrow/must-use-result': 'warn'  // More lenient in tests
+    }
+  }
+]
+```
+
+### Combine with TypeScript Strict Mode
+
+For maximum type safety, use the plugin alongside TypeScript's strict mode:
+
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true
+  }
+}
+```
+
+### Use with Pre-commit Hooks
+
+Integrate the plugin with pre-commit hooks to catch issues early:
+
+```json
+// package.json
+{
+  "scripts": {
+    "lint": "eslint src/",
+    "precommit": "npm run lint"
+  }
+}
+```
+
+## External Resources
+
+- [eslint-plugin-neverthrow on GitHub](https://github.com/mdbetancourt/eslint-plugin-neverthrow)
+- [eslint-plugin-neverthrow on npm](https://www.npmjs.com/package/eslint-plugin-neverthrow)
+- [NeverThrow Bounty Program](https://github.com/supermacro/neverthrow/issues/314)
+- [Rust's must-use attribute](https://doc.rust-lang.org/std/result/#results-must-be-used)
+
+## Community
+
+Have questions or suggestions? Join the discussion:
+
+- [NeverThrow GitHub Discussions](https://github.com/supermacro/neverthrow/discussions)
+- [Report Issues](https://github.com/mdbetancourt/eslint-plugin-neverthrow/issues)

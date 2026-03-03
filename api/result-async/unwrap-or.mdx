@@ -1,0 +1,102 @@
+---
+title: ResultAsync.unwrapOr
+description: Extract value with a default fallback
+---
+
+## Overview
+
+Extracts the `Ok` value from a `ResultAsync`, or returns the provided default value if it's an `Err`. Returns a `Promise` of the value.
+
+## Signature
+
+```typescript
+class ResultAsync<T, E> {
+  unwrapOr<A>(t: A): Promise<T | A>
+}
+```
+
+<ParamField path="t" type="A" required>
+  The default value to return if the ResultAsync is an Err
+</ParamField>
+
+**Returns:** `Promise<T | A>` - A Promise resolving to the Ok value or the default
+
+## Usage
+
+### Basic usage
+
+```typescript
+const value = await errAsync(0).unwrapOr(10)
+// value is 10
+
+const value2 = await okAsync(5).unwrapOr(10)
+// value2 is 5
+```
+
+### Configuration with defaults
+
+```typescript
+const config = await loadConfig()
+  .unwrapOr({
+    host: 'localhost',
+    port: 3000,
+    debug: false
+  })
+
+// config is always defined, uses defaults if loading fails
+```
+
+### API responses
+
+```typescript
+async function getUserName(id: number): Promise<string> {
+  return fetchUser(id)
+    .map(user => user.name)
+    .unwrapOr('Anonymous')
+}
+
+const name = await getUserName(123)
+// name is string, never Result
+```
+
+### Chaining with transformations
+
+```typescript
+const result = await fetchData()
+  .map(data => data.value)
+  .map(value => value * 2)
+  .unwrapOr(0)
+
+// result is number
+```
+
+## Key characteristics
+
+<Tip>
+  Use `unwrapOr` at the end of a Result chain when you want to exit the Result context and always get a value.
+</Tip>
+
+- **Always succeeds**: Never throws, always returns a value
+- **Type safety**: Return type is union of Ok and default types
+- **Returns Promise**: Requires await or .then() to access the value
+
+## When to use
+
+- At application boundaries where you need concrete values
+- When a sensible default exists for error cases
+- Converting Result-based code to traditional async code
+
+<Warning>
+  The default value is evaluated eagerly. If computing it is expensive, consider using `match()` or `orElse()` instead.
+</Warning>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="match" icon="code-branch" href="./match">
+    Handle both cases with callbacks
+  </Card>
+  <Card title="orElse" icon="rotate-left" href="./or-else">
+    Compute default based on the error
+  </Card>
+</CardGroup>

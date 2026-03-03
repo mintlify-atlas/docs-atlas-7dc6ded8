@@ -1,0 +1,165 @@
+---
+title: ResultAsync.combine
+description: Combine multiple ResultAsyncs into one
+---
+
+## Overview
+
+The `combine` and `combineWithAllErrors` static methods allow you to combine multiple `ResultAsync` instances into a single `ResultAsync`.
+
+## Signatures
+
+### ResultAsync.combine
+
+```typescript
+// Homogeneous lists
+function combine<T, E>(
+  asyncResultList: ResultAsync<T, E>[]
+): ResultAsync<T[], E>
+
+// Heterogeneous tuples
+function combine<T1, T2, E1, E2>(
+  asyncResultList: [ResultAsync<T1, E1>, ResultAsync<T2, E2>]
+): ResultAsync<[T1, T2], E1 | E2>
+```
+
+### ResultAsync.combineWithAllErrors
+
+```typescript
+// Homogeneous lists  
+function combineWithAllErrors<T, E>(
+  asyncResultList: ResultAsync<T, E>[]
+): ResultAsync<T[], E[]>
+
+// Heterogeneous tuples
+function combineWithAllErrors<T1, T2, E1, E2>(
+  asyncResultList: [ResultAsync<T1, E1>, ResultAsync<T2, E2>]
+): ResultAsync<[T1, T2], (E1 | E2)[]>
+```
+
+## Usage
+
+### Parallel async operations
+
+```typescript
+import { ResultAsync } from 'neverthrow'
+
+const results = await ResultAsync.combine([
+  fetchUser(1),
+  fetchUser(2),
+  fetchUser(3)
+])
+
+// results is Result<User[], FetchError>
+if (results.isOk()) {
+  const users = results.value // User[]
+}
+```
+
+### Heterogeneous operations
+
+```typescript
+const combined = await ResultAsync.combine([
+  fetchUser(id),      // ResultAsync<User, FetchError>
+  fetchPosts(userId), // ResultAsync<Post[], PostError>
+  fetchComments(id)   // ResultAsync<Comment[], CommentError>
+])
+
+// combined is ResultAsync<[User, Post[], Comment[]], FetchError | PostError | CommentError>
+```
+
+### Short-circuit behavior
+
+```typescript
+const results = await ResultAsync.combine([
+  okAsync(1),
+  errAsync('error'),  // First error
+  okAsync(3)
+])
+
+// results is Err('error')
+// Third operation may not even execute
+```
+
+### Collect all errors
+
+```typescript
+const results = await ResultAsync.combineWithAllErrors([
+  errAsync('error1'),
+  okAsync(2),
+  errAsync('error3')
+])
+
+// results is Err(['error1', 'error3'])
+// All operations executed, all errors collected
+```
+
+## Real-world examples
+
+### Form validation
+
+```typescript
+const validateForm = async (form: FormData) => {
+  return ResultAsync.combineWithAllErrors([
+    validateEmail(form.email),
+    validatePassword(form.password),
+    validateAge(form.age),
+    checkUsernameAvailable(form.username)
+  ]).map(() => form)
+}
+
+const result = await validateForm(formData)
+if (result.isErr()) {
+  // Show all validation errors at once
+  displayErrors(result.error)
+}
+```
+
+### Parallel API calls
+
+```typescript
+const loadDashboard = async (userId: number) => {
+  const combined = await ResultAsync.combine([
+    fetchUserProfile(userId),
+    fetchRecentActivity(userId),
+    fetchNotifications(userId),
+    fetchSettings(userId)
+  ])
+  
+  return combined.map(([profile, activity, notifications, settings]) => ({
+    profile,
+    activity,
+    notifications,
+    settings
+  }))
+}
+```
+
+## Key characteristics
+
+### combine
+
+- **Short-circuits**: Stops at first error
+- **Efficient**: May not execute all operations
+- **Single error**: Returns first error encountered
+
+### combineWithAllErrors
+
+- **Exhaustive**: Executes all operations
+- **Complete**: Collects all errors
+- **Error array**: Returns array of all errors
+
+<Tip>
+  Use `combine` for independent operations where one failure should stop everything. Use `combineWithAllErrors` for validations where you want to show all errors to the user.
+</Tip>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Result.combine" icon="layer-group" href="../result/combine">
+    Synchronous version
+  </Card>
+  <Card title="Combining Results Guide" icon="book" href="/guides/combining-results">
+    Detailed usage patterns
+  </Card>
+</CardGroup>

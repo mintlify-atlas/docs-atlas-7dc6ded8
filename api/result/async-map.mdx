@@ -1,0 +1,261 @@
+---
+title: Result.asyncMap()
+description: Transform the Ok value with an async function, returning a ResultAsync
+---
+
+## Overview
+
+Maps a `Result<T, E>` to `ResultAsync<U, E>` by applying an async function to a contained `Ok` value, leaving an `Err` value untouched. This bridges synchronous Results with asynchronous operations.
+
+## Signature
+
+```typescript
+class Result<T, E> {
+  asyncMap<U>(f: (t: T) => Promise<U>): ResultAsync<U, E>
+}
+```
+
+## Parameters
+
+<ParamField path="f" type="(t: T) => Promise<U>" required>
+  An async function that transforms the Ok value from type `T` to type `U`. This function is only called if the Result is Ok.
+</ParamField>
+
+## Returns
+
+Returns a `ResultAsync<U, E>` which can be awaited or chained with more ResultAsync methods.
+
+- If the original Result is `Ok(value)`, the returned ResultAsync resolves to `Ok(await f(value))`
+- If the original Result is `Err(error)`, the returned ResultAsync resolves to `Err(error)` without calling `f`
+
+## Examples
+
+### Basic Usage
+
+```typescript
+import { ok, err } from 'neverthrow'
+
+const okVal = ok(12)
+
+const asyncResult = okVal.asyncMap((value) => {
+  return Promise.resolve(value * 2)
+})
+
+// asyncResult is a ResultAsync<number, never>
+
+const result = await asyncResult
+result.isOk() // true
+result._unsafeUnwrap() // 24
+```
+
+### Database Query
+
+```typescript
+import { parseHeaders } from 'imaginary-http-parser'
+// parseHeaders(raw: string): Result<Headers, ParseError>
+
+async function findUserInDatabase(
+  authToken: string
+): Promise<User> {
+  // ... database query
+}
+
+const asyncResult = parseHeaders(rawHeader)
+  .map((headerMap) => headerMap.Authorization)
+  .asyncMap(findUserInDatabase)
+
+// asyncResult is ResultAsync<User, ParseError>
+```
+
+### Skips Errors
+
+```typescript
+const errVal = err<number, string>('nooooooo')
+
+const asyncMapper = async (value: number) => {
+  // ... complex async logic
+  return value.toString()
+}
+
+const promise = errVal.asyncMap(asyncMapper)
+
+const result = await promise
+result.isErr() // true
+result._unsafeUnwrapErr() // 'nooooooo'
+// asyncMapper was never called
+```
+
+### API Calls
+
+```typescript
+type UserId = string
+type User = { id: UserId; name: string; email: string }
+
+function validateUserId(input: string): Result<UserId, 'InvalidFormat'> {
+  return input.length > 0 ? ok(input) : err('InvalidFormat')
+}
+
+async function fetchUser(id: UserId): Promise<User> {
+  const response = await fetch(`/api/users/${id}`)
+  return response.json()
+}
+
+const userResult = validateUserId(inputString)
+  .asyncMap(fetchUser)
+
+// userResult is ResultAsync<User, 'InvalidFormat'>
+
+await userResult.match(
+  (user) => console.log('Fetched user:', user.name),
+  (error) => console.error('Error:', error)
+)
+```
+
+### Chaining Async Operations
+
+```typescript
+const result = ok(5)
+  .map((n) => n * 2)                    // Result<number, never>
+  .asyncMap(async (n) => {
+    await delay(100)
+    return n.toString()
+  })                                      // ResultAsync<string, never>
+  .andThen(async (str) => {
+    const data = await fetchData(str)
+    return ok(data)
+  })                                      // ResultAsync<Data, never>
+
+const finalResult = await result
+```
+
+### File I/O
+
+```typescript
+import { promises as fs } from 'fs'
+
+function validatePath(path: string): Result<string, 'InvalidPath'> {
+  return path.length > 0 ? ok(path) : err('InvalidPath')
+}
+
+const fileContent = validatePath(userInput)
+  .asyncMap((path) => fs.readFile(path, 'utf-8'))
+
+// fileContent is ResultAsync<string, 'InvalidPath'>
+
+await fileContent.match(
+  (content) => console.log('File content:', content),
+  (error) => console.error('Error:', error)
+)
+```
+
+### Parallel Async Operations
+
+```typescript
+type ImageData = { url: string; size: number }
+
+function validateImageUrl(url: string): Result<string, 'InvalidUrl'> {
+  // ... validation
+}
+
+async function fetchImageMetadata(url: string): Promise<ImageData> {
+  // ... fetch from CDN
+}
+
+const urls = ['url1', 'url2', 'url3']
+
+const imagePromises = urls.map((url) =>
+  validateImageUrl(url)
+    .asyncMap(fetchImageMetadata)
+)
+
+const images = await Promise.all(imagePromises)
+// images is Result<ImageData, 'InvalidUrl'>[]
+```
+
+### Real-World Authentication Flow
+
+```typescript
+type Credentials = { username: string; password: string }
+type SessionToken = string
+
+function parseCredentials(
+  body: unknown
+): Result<Credentials, 'ParseError'> {
+  // ... parsing logic
+}
+
+async function authenticate(
+  creds: Credentials
+): Promise<SessionToken> {
+  // ... async authentication
+}
+
+const sessionResult = parseCredentials(req.body)
+  .asyncMap(authenticate)
+
+await sessionResult.match(
+  (token) => res.json({ success: true, token }),
+  (error) => res.status(400).json({ success: false, error })
+)
+```
+
+### Error Propagation
+
+```typescript
+// Note: asyncMap doesn't catch exceptions thrown by the async function
+const result = ok('user123')
+  .asyncMap(async (id) => {
+    // If this throws, the promise will reject!
+    throw new Error('Database connection failed')
+  })
+
+try {
+  await result
+} catch (error) {
+  // Exception is NOT converted to Err automatically
+  console.error('Unhandled exception:', error)
+}
+
+// Use ResultAsync.fromPromise to handle exceptions:
+const safeResult = ok('user123')
+  .asyncMap((id) => 
+    ResultAsync.fromPromise(
+      fetchUser(id),
+      (e) => 'FetchError'
+    )
+  )
+  .andThen((res) => res) // Flatten nested Result
+```
+
+## Implementation Details
+
+From the source code (result.ts:383-385):
+
+```typescript
+asyncMap<U>(f: (t: T) => Promise<U>): ResultAsync<U, E> {
+  return ResultAsync.fromSafePromise(f(this.value))
+}
+```
+
+For `Err` (result.ts:484-486):
+
+```typescript
+asyncMap<U>(_f: (t: T) => Promise<U>): ResultAsync<U, E> {
+  return errAsync<U, E>(this.error)
+}
+```
+
+## Notes
+
+- Always returns a `ResultAsync`, even when starting with a synchronous `Result`
+- The async function is only executed for `Ok` values
+- Errors in the original Result are propagated without awaiting anything
+- The async function must return a `Promise`, not a `Result` or `ResultAsync`
+- For functions returning `ResultAsync`, use [asyncAndThen()](/api/result/async-and-then) instead
+- Exceptions thrown by the async function will cause the promise to reject (not convert to Err)
+
+## Related
+
+- [Result.map()](/api/result/map) - Synchronous transformation
+- [Result.asyncAndThen()](/api/result/async-and-then) - Chain with functions returning ResultAsync
+- [ResultAsync](/api/result-async/overview) - Full async Result API

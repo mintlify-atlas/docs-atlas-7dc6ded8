@@ -1,0 +1,151 @@
+---
+title: Installation
+description: Install NeverThrow and optional ESLint plugin to enforce proper error handling
+---
+
+## Install NeverThrow
+
+You can install NeverThrow using your preferred package manager:
+
+<CodeGroup>
+
+```bash npm
+npm install neverthrow
+```
+
+```bash yarn
+yarn add neverthrow
+```
+
+```bash pnpm
+pnpm add neverthrow
+```
+
+</CodeGroup>
+
+## Import the library
+
+NeverThrow exports the following main types and functions:
+
+```typescript
+import {
+  ok,
+  Ok,
+  err,
+  Err,
+  Result,
+  okAsync,
+  errAsync,
+  ResultAsync,
+  fromAsyncThrowable,
+  fromThrowable,
+  fromPromise,
+  fromSafePromise,
+  safeTry,
+} from 'neverthrow'
+```
+
+### Core types
+
+- **`ok`** - Convenience function to create an `Ok` variant of `Result`
+- **`err`** - Convenience function to create an `Err` variant of `Result`
+- **`Ok`** - Ok class and type
+- **`Err`** - Err class and type
+- **`Result`** - Type alias and namespace containing static methods like `Result.fromThrowable` and `Result.combine`
+
+### Async types
+
+- **`okAsync`** - Creates a `ResultAsync` containing an `Ok` type `Result`
+- **`errAsync`** - Creates a `ResultAsync` containing an `Err` type `Result`
+- **`ResultAsync`** - Class for asynchronous result handling
+
+### Utility functions
+
+- **`fromThrowable`** - Wraps a throwing function into a Result-returning function
+- **`fromAsyncThrowable`** - Wraps an async throwing function into a ResultAsync-returning function
+- **`fromPromise`** - Converts a Promise into a ResultAsync
+- **`fromSafePromise`** - Converts a non-throwing Promise into a ResultAsync
+- **`safeTry`** - Generator-based syntax for ergonomic error propagation
+
+## ESLint plugin (recommended)
+
+<Warning>
+  **Highly recommended**: Install `eslint-plugin-neverthrow` to ensure errors are not left unhandled.
+</Warning>
+
+The ESLint plugin was created as part of NeverThrow's bounty program by [mdbetancourt](https://github.com/mdbetancourt). It enforces that `Result` instances are properly consumed, similar to Rust's `must-use` attribute.
+
+<CodeGroup>
+
+```bash npm
+npm install eslint-plugin-neverthrow
+```
+
+```bash yarn
+yarn add eslint-plugin-neverthrow
+```
+
+```bash pnpm
+pnpm add eslint-plugin-neverthrow
+```
+
+</CodeGroup>
+
+### How it works
+
+With `eslint-plugin-neverthrow`, you must consume `Result` instances in one of these three ways:
+
+<Steps>
+  <Step title="Using .match">
+    Handle both Ok and Err cases with pattern matching:
+    ```typescript
+    result.match(
+      (value) => console.log('Success:', value),
+      (error) => console.error('Error:', error)
+    )
+    ```
+  </Step>
+  
+  <Step title="Using .unwrapOr">
+    Unwrap the value or provide a default:
+    ```typescript
+    const value = result.unwrapOr(defaultValue)
+    ```
+  </Step>
+  
+  <Step title="Using ._unsafeUnwrap">
+    Unwrap in test environments (not recommended for production):
+    ```typescript
+    const value = result._unsafeUnwrap()
+    ```
+  </Step>
+</Steps>
+
+This ensures you're explicitly handling errors instead of silently ignoring them.
+
+<Tip>
+  The ESLint plugin helps catch unhandled Results at development time, preventing errors from reaching production.
+</Tip>
+
+## TypeScript configuration
+
+NeverThrow is written in TypeScript and includes type definitions out of the box. For the best experience, ensure you're using TypeScript 4.1 or later with `strictNullChecks` enabled in your `tsconfig.json`:
+
+```json tsconfig.json
+{
+  "compilerOptions": {
+    "strict": true,
+    "strictNullChecks": true
+  }
+}
+```
+
+## Next steps
+
+<Card
+  title="Quick start"
+  icon="rocket"
+  href="/quickstart"
+>
+  Learn how to use Result types in under 5 minutes
+</Card>

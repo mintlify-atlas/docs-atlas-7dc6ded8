@@ -1,0 +1,205 @@
+---
+title: "safeTry()"
+description: "Emulate Rust's ? operator using generator syntax for cleaner error handling"
+---
+
+## Overview
+
+The `safeTry` function allows you to write error handling code that resembles Rust's `?` operator using JavaScript generator syntax. It eliminates the boilerplate of repeatedly checking if a `Result` is `Ok` or `Err`, making your code more concise and readable.
+
+## Type Signature
+
+```typescript
+// Synchronous variant
+function safeTry<T, E>(
+  body: () => Generator<Err<never, E>, Result<T, E>>
+): Result<T, E>
+
+// Asynchronous variant
+function safeTry<T, E>(
+  body: () => AsyncGenerator<Err<never, E>, Result<T, E>>
+): ResultAsync<T, E>
+```
+
+## How It Works
+
+`safeTry` evaluates a generator function and:
+- Returns the first `Err` that is yielded, short-circuiting execution
+- Otherwise, returns the final `Result` that is returned from the generator
+
+Inside the generator, you use `yield*` with a `Result` to unwrap its value or early-return if it's an `Err`.
+
+## Basic Usage
+
+### Synchronous Example
+
+```typescript
+import { safeTry, ok, err } from 'neverthrow'
+
+declare function validateInput(input: string): Result<string, 'Invalid'>
+declare function processData(data: string): Result<number, 'ProcessError'>
+
+function myFunction(input: string): Result<number, 'Invalid' | 'ProcessError'> {
+  return safeTry(function*() {
+    // If validateInput returns Err, execution stops here and returns that Err
+    const validated = yield* validateInput(input)
+    
+    // If processData returns Err, execution stops here
+    const processed = yield* processData(validated)
+    
+    // If we got here, both succeeded
+    return ok(processed)
+  })
+}
+```
+
+### Without safeTry (More Boilerplate)
+
+```typescript
+function myFunction(input: string): Result<number, 'Invalid' | 'ProcessError'> {
+  const validationResult = validateInput(input)
+  if (validationResult.isErr()) {
+    return err(validationResult.error)
+  }
+  
+  const processResult = processData(validationResult.value)
+  if (processResult.isErr()) {
+    return err(processResult.error)
+  }
+  
+  return ok(processResult.value)
+}
+```
+
+## Asynchronous Usage
+
+For async operations, use an `async function*` generator:
+
+```typescript
+import { safeTry, ok, okAsync, ResultAsync } from 'neverthrow'
+
+declare function fetchUser(id: string): ResultAsync<User, 'NotFound'>
+declare function validateUser(user: User): Result<User, 'Invalid'>
+declare function saveUser(user: User): ResultAsync<void, 'SaveError'>
+
+function updateUser(id: string): ResultAsync<void, 'NotFound' | 'Invalid' | 'SaveError'> {
+  return safeTry(async function*() {
+    // Unwrap async result
+    const user = yield* fetchUser(id)
+    
+    // Unwrap sync result in async context
+    const validated = yield* validateUser(user)
+    
+    // Unwrap another async result
+    yield* saveUser(validated)
+    
+    return ok(undefined)
+  })
+}
+```
+
+### Mixing Sync and Async Results
+
+```typescript
+import { safeTry, ok } from 'neverthrow'
+
+function mixedExample(): ResultAsync<number, string> {
+  return safeTry(async function*() {
+    // Mix ResultAsync
+    const asyncValue = yield* fetchDataAsync()
+    
+    // with regular Result
+    const syncValue = yield* validateData(asyncValue)
+    
+    // and Promise<Result>
+    const promiseValue = yield* await somePromisedResult()
+    
+    return ok(syncValue + promiseValue)
+  })
+}
+```
+
+## Chaining Operations
+
+You can combine `safeTry` with other `Result` methods:
+
+```typescript
+import { safeTry, ok } from 'neverthrow'
+
+function calculate(): Result<number, string> {
+  return safeTry(function*() {
+    const a = yield* getNumber().mapErr(e => `First error: ${e}`)
+    const b = yield* getNumber().mapErr(e => `Second error: ${e}`)
+    
+    return ok(a + b)
+  })
+}
+```
+
+## Real-World Example
+
+```typescript
+import { safeTry, ok, ResultAsync } from 'neverthrow'
+
+type ValidationError = 'InvalidEmail' | 'InvalidPassword'
+type DatabaseError = 'ConnectionFailed' | 'UserExists'
+type EmailError = 'SendFailed'
+
+function registerUser(
+  email: string,
+  password: string
+): ResultAsync<User, ValidationError | DatabaseError | EmailError> {
+  return safeTry(async function*() {
+    // Validate inputs
+    const validEmail = yield* validateEmail(email)
+      .mapErr(() => 'InvalidEmail' as const)
+    
+    const validPassword = yield* validatePassword(password)
+      .mapErr(() => 'InvalidPassword' as const)
+    
+    // Create user in database
+    const user = yield* createUserInDb(validEmail, validPassword)
+    
+    // Send welcome email (async)
+    yield* sendWelcomeEmail(user)
+    
+    return ok(user)
+  })
+}
+```
+
+## Key Points
+
+- Use `function*` for synchronous generators, `async function*` for async
+- Use `yield*` (not `yield`) to unwrap Results
+- The generator must return a `Result` or `ResultAsync`
+- Execution stops at the first `Err` encountered
+- You can mix sync and async Results in async generators
+
+## Comparison to Rust
+
+In Rust:
+```rust
+fn my_function() -> Result<i32, String> {
+    let a = may_fail_1()?;  // ? operator
+    let b = may_fail_2()?;  // ? operator
+    Ok(a + b)
+}
+```
+
+With `safeTry`:
+```typescript
+function myFunction(): Result<number, string> {
+  return safeTry(function*() {
+    const a = yield* mayFail1()  // yield* is like ?
+    const b = yield* mayFail2()  // yield* is like ?
+    return ok(a + b)
+  })
+}
+```
+
+## Related
+
+- [Result Methods](/api/result/methods)
+- [ResultAsync Methods](/api/result-async/methods)
+- [Error Handling Guide](/guides/error-handling)

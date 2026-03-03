@@ -1,0 +1,129 @@
+---
+title: Introduction to NeverThrow
+description: Type-safe error handling for JavaScript & TypeScript using Result and ResultAsync types
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="NeverThrow - Type-safe error handling"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="NeverThrow - Type-safe error handling"
+/>
+
+## What is NeverThrow?
+
+NeverThrow helps you encode failure into your program using a `Result` type that represents either success (`Ok`) or failure (`Err`). This eliminates the need for try-catch blocks and makes error handling explicit and type-safe.
+
+```typescript
+import { ok, err, Result } from 'neverthrow'
+
+function divide(a: number, b: number): Result<number, string> {
+  if (b === 0) {
+    return err('Division by zero')
+  }
+  return ok(a / b)
+}
+
+const result = divide(10, 2)
+  .map(value => value * 2)
+  .unwrapOr(0)
+// result = 10
+```
+
+For asynchronous tasks, NeverThrow offers `ResultAsync`, which wraps a `Promise<Result<T, E>>` and gives you the same level of expressivity as a regular `Result`.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card
+    title="Type-safe errors"
+    icon="shield-check"
+  >
+    Errors are part of your function signature, making them impossible to ignore and fully type-checked by TypeScript.
+  </Card>
+  <Card
+    title="Functional patterns"
+    icon="link"
+  >
+    Chain operations with `map`, `andThen`, `orElse`, and other functional methods for elegant error handling.
+  </Card>
+  <Card
+    title="Async support"
+    icon="clock"
+  >
+    `ResultAsync` is thenable and behaves like a native Promise, but with full Result API access without awaiting.
+  </Card>
+  <Card
+    title="Safe wrapping"
+    icon="code"
+  >
+    Convert throwing functions to Results with `fromThrowable` and promises to ResultAsync with `fromPromise`.
+  </Card>
+  <Card
+    title="Combine results"
+    icon="layer-group"
+  >
+    Aggregate multiple Results with `Result.combine` - short-circuits on first error or collects all errors.
+  </Card>
+  <Card
+    title="Generator syntax"
+    icon="wand-magic-sparkles"
+  >
+    Use `safeTry` with generator functions for ergonomic error propagation similar to Rust's `?` operator.
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Install NeverThrow and optional ESLint plugin
+  </Card>
+  <Card
+    title="Quick start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Learn the basics in under 5 minutes
+  </Card>
+  <Card
+    title="Core concepts"
+    icon="book"
+    href="/concepts/result-type"
+  >
+    Deep dive into Result and ResultAsync types
+  </Card>
+  <Card
+    title="API reference"
+    icon="code"
+    href="/api/result/ok"
+  >
+    Browse the complete API documentation
+  </Card>
+</CardGroup>
+
+<Note>
+  Looking for real-world examples? Check out this production server implementation: [parlez-vous/server](https://github.com/parlez-vous/server)
+</Note>
+
+## Why not just throw?
+
+Throwing and catching exceptions has several drawbacks:
+
+- **Hidden control flow**: Similar to `goto` statements, making code harder to reason about
+- **Unchecked assumptions**: You assume the caller will implement `catch`, which is a known source of bugs
+- **Unhandled edge cases**: One dev throws, another uses the function without knowing it throws, leading to unhappy users
+
+With `Result`, errors are explicit, type-checked, and impossible to ignore.
+
+<Tip>
+  **Good to know**: Despite the package name, there are valid use cases for throwing. NeverThrow simply encourages you to think more carefully about error handling ergonomics.
+</Tip>
